@@ -164,6 +164,51 @@ test('evaluateRules: rule terpicu masuk anomalies dengan severity+message', () =
   assert.deepEqual(res.errors, []);
 });
 
+// ==== validateWhen: validasi struktur TANPA evaluasi (dipakai config) ====
+
+test('validateWhen: menerima leaf, kombinator bersarang, roster_*, field2, when string JSON', () => {
+  const valid = [
+    { field: 'x', op: '>', value: 0 },
+    { field: 'x', op: '==', value: 0 }, // value 0 sah
+    { field: 'a', op: '<', field2: 'b' },
+    { field: 'x', op: 'empty' },
+    { field: 'x', op: 'in', value: [1, 2] },
+    { field: 'x', op: 'regex', value: '^ab$' },
+    { all: [{ field: 'x', op: '>', value: 0 }, { any: [{ field: 'y', op: 'not_empty' }] }] },
+    { roster_any: 'g', condition: { field: 'x', op: '==', value: 1 } },
+    { roster_all: 'g', condition: { any: [{ field: 'x', op: '==', value: 1 }] } },
+    { roster_count: 'g', condition: { field: 'x', op: '==', value: 1 }, op: '>', value: 2 },
+    { roster_count: 'g', op: '>=', value: 1 }, // tanpa condition = hitung semua baris
+    '{"field":"x","op":"==","value":1}'
+  ];
+  for (const w of valid) {
+    const v = RuleEvaluator.validateWhen(w);
+    assert.equal(v.ok, true, JSON.stringify(w) + ' → ' + (v.error || ''));
+  }
+});
+
+test('validateWhen: menolak struktur rusak — TERMASUK cabang dalam yang lolos dari evaluasi short-circuit', () => {
+  const invalid = [
+    null, 42, 'bukan json {', [],
+    { foo: 'bar' },
+    { field: 'x', op: 'like', value: 1 },
+    { field: 'x', op: '>' },                      // tanpa value/field2
+    { field: 'x', op: 'in', value: 1 },           // in butuh array
+    { field: 'x', op: 'in', value: [] },          // array kosong
+    { field: 'x', op: 'regex', value: '(rusak' }, // pola regex invalid
+    { all: [] },                                  // kombinator kosong
+    { all: 'bukan-array' },
+    { roster_any: 'g' },                          // tanpa condition
+    { roster_count: 'g', op: 'in', value: [1] },  // op count tidak numerik
+    // Short-circuit killer: leaf pertama valid, cabang KEDUA rusak —
+    // evaluate() dengan answers kosong tidak akan menyentuh cabang kedua.
+    { all: [{ field: 'x', op: '==', value: 1 }, { field: 'y', op: 'RUSAK' }] }
+  ];
+  for (const w of invalid) {
+    assert.equal(RuleEvaluator.validateWhen(w).ok, false, 'harusnya invalid: ' + JSON.stringify(w));
+  }
+});
+
 test('evaluateRules: satu rule malformed TIDAK menggagalkan rule lain', () => {
   const rules = [
     { rule_id: 'RUSAK', severity: 'error', message: 'x', when: { field: 'x', op: 'like', value: 1 } },

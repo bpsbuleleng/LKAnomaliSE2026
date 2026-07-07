@@ -68,17 +68,18 @@ var ComputedFields = (function () {
   }
 
   // Urutan penting: field yang bergantung field computed lain harus setelahnya.
+  // Elemen ke-3 = label tampilan (dipakai dropdown field di halaman config).
   var PIPELINE = {
     keluarga: [
-      ['b1r9', b1r9],
-      ['b3r18c', b3r18c],
-      ['b4r16', b4r16],
-      ['luas_per_kapita', luasPerKapita]
+      ['b1r9', b1r9, 'Jumlah anggota keluarga (hitungan)'],
+      ['b3r18c', b3r18c, 'Total pendapatan sebulan (hitungan)'],
+      ['b4r16', b4r16, 'Total pengeluaran sebulan (hitungan)'],
+      ['luas_per_kapita', luasPerKapita, 'Luas lantai per kapita m² (hitungan)']
     ],
     usaha: [
-      ['r26_total', r26Total],
-      ['pangsa_biaya_produksi', pangsaBiayaProduksi],
-      ['rasio_pendapatan_biaya', rasioPendapatanBiaya]
+      ['r26_total', r26Total, 'Total biaya usaha setahun (hitungan)'],
+      ['pangsa_biaya_produksi', pangsaBiayaProduksi, 'Pangsa biaya produksi 0-1 (hitungan)'],
+      ['rasio_pendapatan_biaya', rasioPendapatanBiaya, 'Rasio pendapatan/biaya (hitungan)']
     ]
   };
 
@@ -92,7 +93,14 @@ var ComputedFields = (function () {
     return out;
   }
 
-  return { augment: augment };
+  /** Daftar computed field per jenis — untuk dropdown field halaman config. */
+  function listFields(jenis) {
+    return (PIPELINE[jenis] || []).map(function (step) {
+      return { id: step[0], label: step[2] };
+    });
+  }
+
+  return { augment: augment, listFields: listFields };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

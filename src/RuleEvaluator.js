@@ -121,6 +121,68 @@ var RuleEvaluator = (function () {
     throw new Error('Bentuk kondisi tidak dikenali: ' + JSON.stringify(Object.keys(when)));
   }
 
+  var VALID_OPS = ['==', '!=', '>', '>=', '<', '<=', 'in', 'not_in', 'empty', 'not_empty', 'regex'];
+  var COUNT_OPS = ['==', '!=', '>', '>=', '<', '<='];
+
+  // Validasi STRUKTUR tanpa evaluasi — dipakai halaman config (create/update
+  // rule) supaya `when` rusak ditolak saat disimpan, bukan meledak saat
+  // submit. Evaluasi biasa TIDAK cukup untuk ini karena all/any
+  // short-circuit: cabang setelah leaf false pertama tidak pernah disentuh.
+  function validateNode(node) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) {
+      throw new Error('Kondisi harus objek');
+    }
+    if ('all' in node || 'any' in node) {
+      var arr = node.all !== undefined ? node.all : node.any;
+      var key = node.all !== undefined ? 'all' : 'any';
+      if (!Array.isArray(arr) || !arr.length) throw new Error(key + ' harus array berisi minimal 1 kondisi');
+      arr.forEach(validateNode);
+      return;
+    }
+    if ('roster_any' in node || 'roster_all' in node) {
+      var g = node.roster_any !== undefined ? node.roster_any : node.roster_all;
+      if (typeof g !== 'string' || !g) throw new Error('roster_any/roster_all harus nama grup roster');
+      if (!node.condition) throw new Error('roster_any/roster_all butuh condition');
+      validateNode(node.condition);
+      return;
+    }
+    if ('roster_count' in node) {
+      if (typeof node.roster_count !== 'string' || !node.roster_count) throw new Error('roster_count harus nama grup roster');
+      if (COUNT_OPS.indexOf(node.op) === -1) throw new Error('roster_count butuh op perbandingan numerik');
+      if (isNaN(Number(node.value))) throw new Error('roster_count butuh value numerik');
+      if (node.condition) validateNode(node.condition);
+      return;
+    }
+    if (typeof node.field === 'string' && node.field) {
+      if (VALID_OPS.indexOf(node.op) === -1) throw new Error('Operator tidak dikenal: ' + node.op);
+      if (node.op === 'empty' || node.op === 'not_empty') return; // tanpa value
+      if (node.op === 'in' || node.op === 'not_in') {
+        if (!Array.isArray(node.value) || !node.value.length) throw new Error('Operator ' + node.op + ' butuh value array non-kosong');
+        return;
+      }
+      if (node.op === 'regex') {
+        if (typeof node.value !== 'string') throw new Error('regex butuh value string pola');
+        new RegExp(node.value); // pola rusak → throw
+        return;
+      }
+      if (!('value' in node) && typeof node.field2 !== 'string') {
+        throw new Error('Operator ' + node.op + ' butuh value atau field2');
+      }
+      return;
+    }
+    throw new Error('Bentuk kondisi tidak dikenali: ' + JSON.stringify(Object.keys(node)));
+  }
+
+  /** @return { ok:true } | { ok:false, error } — when boleh objek atau string JSON. */
+  function validateWhen(when) {
+    try {
+      validateNode(typeof when === 'string' ? JSON.parse(when) : when);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  }
+
   /**
    * Jalankan daftar rule (HARUS sudah difilter active oleh caller) atas
    * answers yang sudah ditambah computed fields.
@@ -141,7 +203,7 @@ var RuleEvaluator = (function () {
     return { anomalies: anomalies, errors: errors };
   }
 
-  return { evaluate: evaluate, evaluateRules: evaluateRules };
+  return { evaluate: evaluate, evaluateRules: evaluateRules, validateWhen: validateWhen };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

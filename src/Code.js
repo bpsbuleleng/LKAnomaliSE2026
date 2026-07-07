@@ -5,11 +5,14 @@
 function doGet(e) {
   var page = (e && e.parameter && e.parameter.page) || '';
 
-  // Halaman admin (Fase 4) — hanya via ?page=admin, tidak ditautkan dari UI PML.
+  // Halaman admin (Fase 4) — hanya via ?page=admin, TIDAK ditautkan dari UI
+  // PML. URL saja bukan proteksi: tiap fungsi privileged tetap mengecek
+  // adminPassword server-side di DataAccess.
   if (page === 'admin') {
-    return HtmlService.createHtmlOutput(
-      '<p style="font-family:sans-serif;padding:24px">Halaman admin belum tersedia (Fase 4).</p>'
-    ).setTitle('Admin — LK Anomali SE2026');
+    return HtmlService.createTemplateFromFile('Admin')
+      .evaluate()
+      .setTitle('Admin — LK Anomali SE2026')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
 
   return HtmlService.createTemplateFromFile('Index')

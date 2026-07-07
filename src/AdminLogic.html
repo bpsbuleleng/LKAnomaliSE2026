@@ -1,0 +1,118 @@
+<script>
+/**
+ * AdminLogic — logic murni halaman config (CLIENT-side, tanpa DOM).
+ * Di-unit-test di Node lewat test/helpers/loadHtmlScript.js.
+ * Validasi di sini cuma UX cepat — server (ConfigLogic/RuleEvaluator) tetap
+ * memvalidasi ulang SEMUA input di tiap panggilan.
+ */
+var AdminLogic = (function () {
+  /**
+   * Parse textarea options gaya kolom `kategori` sheet asli:
+   * satu opsi per baris, format "1. Label" (titik boleh ")" atau tanpa).
+   * → { ok, options: [{value, label}] } | { ok:false, error }
+   */
+  function parseOptionsText(text) {
+    var lines = String(text == null ? '' : text).split('\n')
+      .map(function (l) { return l.trim(); })
+      .filter(function (l) { return l !== ''; });
+    if (!lines.length) return { ok: false, error: 'Opsi kosong — isi satu opsi per baris, format "1. Label".' };
+    var options = [];
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^(\d+)\s*[.)]?\s+(.+)$/);
+      if (!m) return { ok: false, error: 'Baris ' + (i + 1) + ' tidak sesuai format "kode. label": "' + lines[i] + '"' };
+      options.push({ value: Number(m[1]), label: m[2].trim() });
+    }
+    return { ok: true, options: options };
+  }
+
+  function optionsToText(options) {
+    return (options || []).map(function (o) { return o.value + '. ' + o.label; }).join('\n');
+  }
+
+  /**
+   * Rakit `when` 1-kondisi dari Mode Sederhana.
+   * @param fieldMeta {type} dari getRuleFieldOptions — menentukan koersi value.
+   */
+  function buildSimpleWhen(fieldId, op, rawValue, fieldMeta) {
+    if (!fieldId) return { ok: false, error: 'Pilih field dulu.' };
+    if (op === 'empty' || op === 'not_empty') {
+      return { ok: true, when: { field: fieldId, op: op } };
+    }
+    var raw = String(rawValue == null ? '' : rawValue).trim();
+    if (raw === '') return { ok: false, error: 'Value belum diisi.' };
+    var numeric = fieldMeta && (fieldMeta.type === 'number' || fieldMeta.type === 'select');
+
+    if (op === 'in' || op === 'not_in') {
+      var items = raw.split(',').map(function (v) { return v.trim(); }).filter(function (v) { return v !== ''; });
+      if (!items.length) return { ok: false, error: 'Isi daftar value dipisah koma, mis. 1, 2, 3.' };
+      var values = items.map(function (v) { return numeric && !isNaN(Number(v)) ? Number(v) : v; });
+      return { ok: true, when: { field: fieldId, op: op, value: values } };
+    }
+    if (op === 'regex') {
+      try { new RegExp(raw); } catch (e) { return { ok: false, error: 'Pola regex tidak valid.' }; }
+      return { ok: true, when: { field: fieldId, op: op, value: raw } };
+    }
+    var isCmp = op === '>' || op === '>=' || op === '<' || op === '<=';
+    if (isCmp && isNaN(Number(raw))) return { ok: false, error: 'Operator ' + op + ' butuh value angka.' };
+    var value = (numeric || isCmp) && !isNaN(Number(raw)) ? Number(raw) : raw;
+    return { ok: true, when: { field: fieldId, op: op, value: value } };
+  }
+
+  /** Mode Lanjutan: parse + cek dasar; struktur detail divalidasi server. */
+  function parseAdvancedWhen(text) {
+    var parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      return { ok: false, error: 'JSON tidak valid: ' + e.message };
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, error: 'Kondisi harus objek JSON (bukan array/primitif).' };
+    }
+    return { ok: true, when: parsed };
+  }
+
+  /** Geser item list (tombol ↑/↓). Kembalikan array BARU; di luar batas = apa adanya. */
+  function moveItem(arr, index, delta) {
+    var to = index + delta;
+    if (index < 0 || index >= arr.length || to < 0 || to >= arr.length) return arr.slice();
+    var copy = arr.slice();
+    var tmp = copy[index];
+    copy[index] = copy[to];
+    copy[to] = tmp;
+    return copy;
+  }
+
+  /**
+   * Template contoh jawaban untuk panel Preview: field datar kosong + tiap
+   * grup roster satu baris kosong — admin tinggal mengisi nilai.
+   */
+  function buildAnswersTemplate(questions) {
+    var answers = {};
+    var roster = {};
+    (questions || []).forEach(function (q) {
+      if (q.roster_group) {
+        if (!roster[q.roster_group]) roster[q.roster_group] = [{}];
+        roster[q.roster_group][0][q.question_id] = '';
+      } else {
+        answers[q.question_id] = '';
+      }
+    });
+    if (Object.keys(roster).length) answers.roster = roster;
+    return answers;
+  }
+
+  return {
+    parseOptionsText: parseOptionsText,
+    optionsToText: optionsToText,
+    buildSimpleWhen: buildSimpleWhen,
+    parseAdvancedWhen: parseAdvancedWhen,
+    moveItem: moveItem,
+    buildAnswersTemplate: buildAnswersTemplate
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = AdminLogic;
+}
+</script>

@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+
+  <?!= include('AdminLoginView'); ?>
+
+  <section id="admin-view-main" data-testid="admin-main" class="view hidden max-w-md mx-auto px-4 py-6 space-y-5">
+    <div class="flex items-center justify-between">
+      <h1 class="text-xl font-bold">Config SE2026</h1>
+      <button id="admin-logout" data-testid="admin-logout" type="button"
+        class="h-11 px-3 rounded-lg text-sky-700 font-medium active:bg-sky-50">Keluar</button>
+    </div>
+
+    <div class="flex rounded-xl bg-slate-200 p-1" role="tablist">
+      <button id="jenis-tab-usaha" data-testid="jenis-tab-usaha" type="button"
+        class="flex-1 h-11 rounded-lg text-sm font-semibold">usaha</button>
+      <button id="jenis-tab-keluarga" data-testid="jenis-tab-keluarga" type="button"
+        class="flex-1 h-11 rounded-lg text-sm font-semibold">keluarga</button>
+    </div>
+
+    <?!= include('AdminQuestionsView'); ?>
+    <?!= include('AdminRulesView'); ?>
+  </section>
+
+  <?!= include('AdminLogic'); ?>
+
+  <script>
+    // Password admin hidup HANYA di variabel ini selama sesi halaman (bukan
+    // localStorage) dan disertakan di TIAP panggilan privileged — server
+    // mengecek ulang setiap kali; UI ini sama sekali bukan lapisan proteksi.
+    var Adm = {
+      pw: null, jenis: 'usaha',
+      questions: [], rules: [], fields: [],
+      editingQ: null, editingR: null
+    };
+
+    var ADMIN_ERROR_MESSAGES = {
+      FORBIDDEN: 'Password admin salah — akses ditolak server.',
+      INVALID_JENIS: 'Jenis tidak valid.',
+      INVALID_ALIAS: 'Alias tidak valid — pakai huruf kecil/angka/underscore.',
+      DUPLICATE_ALIAS: 'Alias sudah dipakai pertanyaan lain di jenis ini.',
+      INVALID_LABEL: 'Label pertanyaan wajib diisi.',
+      INVALID_TYPE: 'Tipe pertanyaan tidak valid.',
+      INVALID_OPTIONS: 'Tipe select butuh daftar opsi yang valid.',
+      INVALID_ORDER: 'Urutan tidak valid — muat ulang halaman lalu coba lagi.',
+      INVALID_SEVERITY: 'Severity tidak valid.',
+      INVALID_MESSAGE: 'Pesan anomali wajib diisi.',
+      INVALID_WHEN: 'Kondisi when tidak valid.',
+      NOT_FOUND: 'Item tidak ditemukan — muat ulang halaman.'
+    };
+
+    function el(id) { return document.getElementById(id); }
+
+    function gsRun(fnName) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      return new Promise(function (resolve, reject) {
+        var runner = google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject);
+        runner[fnName].apply(runner, args);
+      });
+    }
+
+    function serverError(res) {
+      var msg = ADMIN_ERROR_MESSAGES[res && res.error] || 'Gagal — coba lagi.';
+      if (res && res.detail) msg += ' (' + res.detail + ')';
+      return msg;
+    }
+
+    function showView(name) {
+      document.querySelectorAll('.view').forEach(function (v) { v.classList.add('hidden'); });
+      el('admin-view-' + name).classList.remove('hidden');
+    }
+
+    // ==== LOGIN (gerbang UX — keamanan tetap di cek per-panggilan server) ====
+
+    el('admin-login-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var pw = el('admin-password').value;
+      el('admin-login-error').classList.add('hidden');
+      el('admin-login-submit').disabled = true;
+      gsRun('checkAdminPassword', pw)
+        .then(function (res) {
+          el('admin-login-submit').disabled = false;
+          if (res && res.ok) {
+            Adm.pw = pw;
+            el('admin-password').value = '';
+            showView('main');
+            setJenis(Adm.jenis);
+          } else {
+            el('admin-login-error').textContent = 'Password salah.';
+            el('admin-login-error').classList.remove('hidden');
+          }
+        })
+        .catch(function () {
+          el('admin-login-submit').disabled = false;
+          el('admin-login-error').textContent = 'Gagal terhubung ke server. Coba lagi.';
+          el('admin-login-error').classList.remove('hidden');
+        });
+    });
+
+    el('admin-logout').addEventListener('click', function () {
+      Adm.pw = null;
+      showView('login');
+    });
+
+    // ==== TAB JENIS ====
+
+    function setJenis(jenis) {
+      Adm.jenis = jenis;
+      ['usaha', 'keluarga'].forEach(function (j) {
+        el('jenis-tab-' + j).className = 'flex-1 h-11 rounded-lg text-sm font-semibold ' +
+          (j === jenis ? 'bg-white shadow text-sky-700' : 'text-slate-500');
+      });
+      loadAll();
+    }
+    el('jenis-tab-usaha').addEventListener('click', function () { setJenis('usaha'); });
+    el('jenis-tab-keluarga').addEventListener('click', function () { setJenis('keluarga'); });
+
+    function loadAll() {
+      el('aq-list').innerHTML = '<p class="text-sm text-slate-400">Memuat…</p>';
+      el('ar-list').innerHTML = '<p class="text-sm text-slate-400">Memuat…</p>';
+      return Promise.all([
+        gsRun('getQuestions', Adm.jenis, true),   // admin lihat SEMUA termasuk nonaktif
+        gsRun('getRules', Adm.jenis, true),
+        gsRun('getRuleFieldOptions', Adm.jenis)
+      ]).then(function (vals) {
+        Adm.questions = (vals[0] && vals[0].questions) || [];
+        Adm.rules = (vals[1] && vals[1].rules) || [];
+        Adm.fields = (vals[2] && vals[2].fields) || [];
+        renderQuestions();
+        renderRules();
+      }).catch(function () {
+        el('aq-list').innerHTML = '<p class="text-sm text-red-600">Gagal memuat — periksa koneksi.</p>';
+        el('ar-list').innerHTML = '';
+      });
+    }
+
+    function badge(text, cls) {
+      return '<span class="text-[11px] font-semibold px-1.5 py-0.5 rounded ' + cls + '">' + text + '</span>';
+    }
+
+    // ==== KELOLA PERTANYAAN ====
+
+    function renderQuestions() {
+      var wrap = el('aq-list');
+      wrap.innerHTML = '';
+      if (!Adm.questions.length) {
+        wrap.innerHTML = '<p class="text-sm text-slate-400">Belum ada pertanyaan.</p>';
+        return;
+      }
+      Adm.questions.forEach(function (q, i) {
+        var row = document.createElement('div');
+        row.setAttribute('data-testid', 'aq-row-' + q.question_id);
+        row.className = 'rounded-xl border border-slate-200 p-3 space-y-2' + (q.active ? '' : ' opacity-60 bg-slate-50');
+        var badges = badge(q.type, 'bg-slate-100 text-slate-600');
+        if (q.required) badges += ' ' + badge('wajib', 'bg-sky-100 text-sky-700');
+        if (q.roster_group) badges += ' ' + badge('roster: ' + q.roster_group, 'bg-indigo-100 text-indigo-700');
+        if (!q.active) badges += ' ' + badge('NONAKTIF', 'bg-red-100 text-red-700');
+        row.innerHTML =
+          '<div class="flex items-start gap-2">' +
+            '<span class="shrink-0 w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-bold flex items-center justify-center">' + q.order + '</span>' +
+            '<div class="min-w-0">' +
+              '<p class="text-sm font-medium leading-snug"></p>' +
+              '<p class="text-xs text-slate-400 font-mono">' + q.question_id + '</p>' +
+              '<div class="flex flex-wrap gap-1 mt-1">' + badges + '</div>' +
+            '</div>' +
+          '</div>';
+        row.querySelector('p').textContent = q.label;
+
+        var btns = document.createElement('div');
+        btns.className = 'flex gap-2';
+        btns.appendChild(smallBtn('↑', 'aq-up-' + q.question_id, i === 0, function () { moveQuestion(i, -1); }));
+        btns.appendChild(smallBtn('↓', 'aq-down-' + q.question_id, i === Adm.questions.length - 1, function () { moveQuestion(i, 1); }));
+        btns.appendChild(smallBtn('Edit', 'aq-edit-' + q.question_id, false, function () { openQuestionDialog(q); }));
+        btns.appendChild(smallBtn(q.active ? 'Nonaktifkan' : 'Aktifkan', 'aq-toggle-' + q.question_id, false, function () {
+          gsRun('setQuestionActive', Adm.pw, Adm.jenis, q.question_id, !q.active).then(afterMutation);
+        }, q.active ? 'text-red-600' : 'text-emerald-700'));
+        row.appendChild(btns);
+        wrap.appendChild(row);
+      });
+    }
+
+    function smallBtn(text, testid, disabled, onClick, extraCls) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = text;
+      b.disabled = disabled;
+      b.setAttribute('data-testid', testid);
+      b.className = 'h-11 px-3 rounded-lg border border-slate-200 text-sm font-medium active:bg-slate-100 disabled:opacity-30 ' + (extraCls || 'text-slate-700');
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    function afterMutation(res) {
+      if (!(res && res.ok)) { alert(serverError(res)); return; }
+      loadAll();
+    }
+
+    function moveQuestion(index, delta) {
+      var ids = Adm.questions.map(function (q) { return q.question_id; });
+      var next = AdminLogic.moveItem(ids, index, delta);
+      gsRun('reorderQuestions', Adm.pw, Adm.jenis, next).then(afterMutation);
+    }
+
+    // -- dialog tambah/edit --
+
+    function openQuestionDialog(q) {
+      Adm.editingQ = q ? q.question_id : null;
+      el('aq-dialog-title').textContent = q ? 'Edit Pertanyaan' : 'Tambah Pertanyaan';
+      el('aq-alias').value = q ? q.question_id : '';
+      el('aq-alias').disabled = !!q;
+      el('aq-label').value = q ? q.label : '';
+      el('aq-type').value = q ? q.type : 'text';
+      el('aq-options').value = q && q.options ? AdminLogic.optionsToText(q.options) : '';
+      el('aq-required').checked = !!(q && q.required);
+      el('aq-help').value = (q && q.help) || '';
+      el('aq-error').classList.add('hidden');
+      syncOptionsVisibility();
+      el('aq-dialog').classList.remove('hidden');
+    }
+
+    function syncOptionsVisibility() {
+      el('aq-options-wrap').classList.toggle('hidden', el('aq-type').value !== 'select');
+    }
+    el('aq-type').addEventListener('change', syncOptionsVisibility);
+    el('aq-add').addEventListener('click', function () { openQuestionDialog(null); });
+    el('aq-cancel').addEventListener('click', function () { el('aq-dialog').classList.add('hidden'); });
+
+    el('aq-save').addEventListener('click', function () {
+      var showErr = function (msg) {
+        el('aq-error').textContent = msg;
+        el('aq-error').classList.remove('hidden');
+      };
+      el('aq-error').classList.add('hidden');
+      var payload = {
+        label: el('aq-label').value,
+        type: el('aq-type').value,
+        required: el('aq-required').checked,
+        help: el('aq-help').value,
+        options: null
+      };
+      if (payload.type === 'select') {
+        var parsed = AdminLogic.parseOptionsText(el('aq-options').value);
+        if (!parsed.ok) { showErr(parsed.error); return; }
+        payload.options = parsed.options;
+      }
+      var call;
+      if (Adm.editingQ) {
+        call = gsRun('updateQuestion', Adm.pw, Adm.jenis, Adm.editingQ, payload);
+      } else {
+        payload.question_id = el('aq-alias').value;
+        call = gsRun('createQuestion', Adm.pw, Adm.jenis, payload);
+      }
+      el('aq-save').disabled = true;
+      call.then(function (res) {
+        el('aq-save').disabled = false;
+        if (!(res && res.ok)) { showErr(serverError(res)); return; }
+        el('aq-dialog').classList.add('hidden');
+        loadAll();
+      }).catch(function () {
+        el('aq-save').disabled = false;
+        showErr('Gagal terhubung ke server.');
+      });
+    });
+
+    // ==== KELOLA RULE ====
+
+    var SEVERITY_CLS = { error: 'bg-red-100 text-red-700', warning: 'bg-amber-100 text-amber-800' };
+
+    function renderRules() {
+      var wrap = el('ar-list');
+      wrap.innerHTML = '';
+      if (!Adm.rules.length) {
+        wrap.innerHTML = '<p class="text-sm text-slate-400">Belum ada rule.</p>';
+        return;
+      }
+      Adm.rules.forEach(function (r) {
+        var row = document.createElement('div');
+        row.setAttribute('data-testid', 'ar-row-' + r.rule_id);
+        row.className = 'rounded-xl border border-slate-200 p-3 space-y-2' + (r.active ? '' : ' opacity-60 bg-slate-50');
+        var badges = badge(r.rule_id, 'bg-slate-100 text-slate-600') + ' ' +
+          badge(r.severity, SEVERITY_CLS[r.severity] || SEVERITY_CLS.warning) +
+          (r.active ? '' : ' ' + badge('NONAKTIF', 'bg-red-100 text-red-700'));
+        row.innerHTML =
+          '<div class="flex flex-wrap gap-1">' + badges + '</div>' +
+          '<p class="text-sm leading-snug"></p>';
+        row.querySelector('p:last-child').textContent = r.message;
+
+        var btns = document.createElement('div');
+        btns.className = 'flex gap-2';
+        btns.appendChild(smallBtn('Edit', 'ar-edit-' + r.rule_id, false, function () { openRuleDialog(r); }));
+        btns.appendChild(smallBtn(r.active ? 'Nonaktifkan' : 'Aktifkan', 'ar-toggle-' + r.rule_id, false, function () {
+          gsRun('setRuleActive', Adm.pw, r.rule_id, !r.active).then(afterMutation);
+        }, r.active ? 'text-red-600' : 'text-emerald-700'));
+        row.appendChild(btns);
+        wrap.appendChild(row);
+      });
+    }
+
+    // -- dialog rule --
+
+    function fieldMeta(id) {
+      for (var i = 0; i < Adm.fields.length; i++) if (Adm.fields[i].id === id) return Adm.fields[i];
+      return null;
+    }
+
+    function renderFieldSelect() {
+      var sel = el('ar-field');
+      sel.innerHTML = '';
+      Adm.fields.forEach(function (f) {
+        var label = f.id + ' — ' + f.label;
+        sel.appendChild(new Option(label, f.id));
+      });
+    }
+
+    // Input value menyesuaikan field & operator: dropdown opsi utk select
+    // dengan ==/!=, comma-list utk in/not_in, disembunyikan utk empty/not_empty.
+    function renderValueSlot(presetValue) {
+      var op = el('ar-op').value;
+      var meta = fieldMeta(el('ar-field').value);
+      var slot = el('ar-value-slot');
+      slot.innerHTML = '';
+      var noValue = op === 'empty' || op === 'not_empty';
+      el('ar-value-wrap').classList.toggle('hidden', noValue);
+      if (noValue) return;
+
+      var input;
+      if (meta && meta.options && (op === '==' || op === '!=')) {
+        input = document.createElement('select');
+        input.className = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+        meta.options.forEach(function (o) {
+          input.appendChild(new Option(o.value + '. ' + o.label, String(o.value)));
+        });
+        if (presetValue !== undefined) input.value = String(presetValue);
+      } else {
+        input = document.createElement('input');
+        input.className = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300';
+        input.placeholder = (op === 'in' || op === 'not_in') ? 'mis. 1, 2, 3' : '';
+        if (presetValue !== undefined) {
+          input.value = Array.isArray(presetValue) ? presetValue.join(', ') : String(presetValue);
+        }
+      }
+      input.setAttribute('data-testid', 'ar-value');
+      slot.appendChild(input);
+    }
+    el('ar-field').addEventListener('change', function () { renderValueSlot(); });
+    el('ar-op').addEventListener('change', function () { renderValueSlot(); });
+
+    function setRuleMode(mode) {
+      el('ar-mode-simple').checked = mode === 'simple';
+      el('ar-mode-advanced').checked = mode === 'advanced';
+      el('ar-simple-wrap').classList.toggle('hidden', mode !== 'simple');
+      el('ar-adv-wrap').classList.toggle('hidden', mode !== 'advanced');
+    }
+    el('ar-mode-simple').addEventListener('change', function () { setRuleMode('simple'); });
+    el('ar-mode-advanced').addEventListener('change', function () { setRuleMode('advanced'); });
+
+    // Kondisi 1-leaf sederhana (tanpa all/any/roster/field2) bisa dibuka di
+    // Mode Sederhana; selain itu Mode Lanjutan.
+    function isSimpleWhen(when) {
+      return when && typeof when.field === 'string' && !('field2' in when) &&
+        !('all' in when) && !('any' in when) &&
+        fieldMeta(when.field) !== null;
+    }
+
+    function openRuleDialog(r) {
+      Adm.editingR = r ? r.rule_id : null;
+      el('ar-dialog-title').textContent = r ? 'Edit Rule' : 'Tambah Rule';
+      el('ar-rule-id').textContent = r ? r.rule_id : '(id dibuat otomatis)';
+      el('ar-severity').value = r ? r.severity : 'warning';
+      el('ar-message').value = r ? r.message : '';
+      el('ar-error').classList.add('hidden');
+      el('ar-preview-result').classList.add('hidden');
+      el('ar-preview-computed').classList.add('hidden');
+      el('ar-preview-answers').value = '';
+      renderFieldSelect();
+      if (r && isSimpleWhen(r.when)) {
+        setRuleMode('simple');
+        el('ar-field').value = r.when.field;
+        el('ar-op').value = r.when.op;
+        renderValueSlot(r.when.value);
+      } else if (r) {
+        setRuleMode('advanced');
+        el('ar-json').value = JSON.stringify(r.when, null, 2);
+      } else {
+        setRuleMode('simple');
+        el('ar-json').value = '';
+        renderValueSlot();
+      }
+      el('ar-dialog').classList.remove('hidden');
+    }
+
+    el('ar-add').addEventListener('click', function () { openRuleDialog(null); });
+    el('ar-cancel').addEventListener('click', function () { el('ar-dialog').classList.add('hidden'); });
+
+    function currentWhen() {
+      if (el('ar-mode-simple').checked) {
+        var valEl = el('ar-value-slot').firstChild;
+        return AdminLogic.buildSimpleWhen(
+          el('ar-field').value, el('ar-op').value,
+          valEl ? valEl.value : '', fieldMeta(el('ar-field').value)
+        );
+      }
+      return AdminLogic.parseAdvancedWhen(el('ar-json').value);
+    }
+
+    el('ar-save').addEventListener('click', function () {
+      var showErr = function (msg) {
+        el('ar-error').textContent = msg;
+        el('ar-error').classList.remove('hidden');
+      };
+      el('ar-error').classList.add('hidden');
+      var w = currentWhen();
+      if (!w.ok) { showErr(w.error); return; }
+      var payload = { severity: el('ar-severity').value, message: el('ar-message').value, when: w.when };
+      var call = Adm.editingR
+        ? gsRun('updateRule', Adm.pw, Adm.editingR, payload)
+        : gsRun('createRule', Adm.pw, Adm.jenis, payload);
+      el('ar-save').disabled = true;
+      call.then(function (res) {
+        el('ar-save').disabled = false;
+        if (!(res && res.ok)) { showErr(serverError(res)); return; }
+        el('ar-dialog').classList.add('hidden');
+        loadAll();
+      }).catch(function () {
+        el('ar-save').disabled = false;
+        showErr('Gagal terhubung ke server.');
+      });
+    });
+
+    // -- preview: evaluator yang SAMA dengan submit, dijalankan di server --
+
+    el('ar-preview-template').addEventListener('click', function () {
+      var active = Adm.questions.filter(function (q) { return q.active; });
+      el('ar-preview-answers').value = JSON.stringify(AdminLogic.buildAnswersTemplate(active), null, 2);
+    });
+
+    el('ar-preview-run').addEventListener('click', function () {
+      var resEl = el('ar-preview-result');
+      var compEl = el('ar-preview-computed');
+      var show = function (text, cls) {
+        resEl.textContent = text;
+        resEl.className = 'text-sm font-semibold ' + cls;
+        resEl.classList.remove('hidden');
+      };
+      compEl.classList.add('hidden');
+      var w = currentWhen();
+      if (!w.ok) { show('Kondisi belum valid: ' + w.error, 'text-red-600'); return; }
+      var answers = {};
+      var raw = el('ar-preview-answers').value.trim();
+      if (raw) {
+        try { answers = JSON.parse(raw); }
+        catch (e) { show('Contoh jawaban bukan JSON valid.', 'text-red-600'); return; }
+      }
+      show('Menjalankan…', 'text-slate-500');
+      gsRun('previewRule', Adm.pw, Adm.jenis, w.when, answers)
+        .then(function (res) {
+          if (!(res && res.ok)) { show(serverError(res), 'text-red-600'); return; }
+          show(res.triggered ? '⚠ TERPICU — record seperti ini akan ditandai anomali'
+                             : '✓ TIDAK terpicu untuk contoh jawaban ini',
+               res.triggered ? 'text-amber-700' : 'text-emerald-700');
+          // tampilkan nilai computed fields hasil augment server
+          var computed = {};
+          Adm.fields.forEach(function (f) {
+            if (f.source === 'computed' && res.answers && res.answers[f.id] !== undefined) {
+              computed[f.id] = res.answers[f.id];
+            }
+          });
+          if (Object.keys(computed).length) {
+            compEl.textContent = 'Computed: ' + JSON.stringify(computed);
+            compEl.classList.remove('hidden');
+          }
+        })
+        .catch(function () { show('Gagal terhubung ke server.', 'text-red-600'); });
+    });
+  </script>
+</body>
+</html>
