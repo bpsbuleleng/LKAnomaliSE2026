@@ -1,0 +1,74 @@
+<script>
+/**
+ * CascadeLogic — logic murni cascading wilayah (CLIENT-side, tanpa DOM).
+ * Kode wilayah SELALU dibanding sebagai STRING (jaga leading zero).
+ * Di-unit-test di Node lewat test/helpers/loadHtmlScript.js.
+ */
+var CascadeLogic = (function () {
+  function s(v) { return String(v == null ? '' : v); }
+
+  function uniqueSorted(rows, keyFn, mapFn) {
+    var seen = {};
+    var out = [];
+    rows.forEach(function (r) {
+      var k = keyFn(r);
+      if (!seen[k]) { seen[k] = true; out.push(mapFn(r)); }
+    });
+    out.sort(function (a, b) { return a.kode < b.kode ? -1 : a.kode > b.kode ? 1 : 0; });
+    return out;
+  }
+
+  function kecamatanOptions(rows) {
+    return uniqueSorted(rows,
+      function (r) { return s(r.kdkec); },
+      function (r) { return { kode: s(r.kdkec), nama: s(r.nmkec) }; });
+  }
+
+  function desaOptions(rows, kdkec) {
+    var sub = rows.filter(function (r) { return s(r.kdkec) === s(kdkec); });
+    return uniqueSorted(sub,
+      function (r) { return s(r.kddesa); },
+      function (r) { return { kode: s(r.kddesa), nama: s(r.nmdesa) }; });
+  }
+
+  function slsOptions(rows, kdkec, kddesa) {
+    var sub = rows.filter(function (r) {
+      return s(r.kdkec) === s(kdkec) && s(r.kddesa) === s(kddesa);
+    });
+    return uniqueSorted(sub,
+      function (r) { return s(r.kdsls); },
+      function (r) { return { kode: s(r.kdsls), nama: s(r.nmsls) }; });
+  }
+
+  function subSlsOptions(rows, kdkec, kddesa, kdsls) {
+    var sub = rows.filter(function (r) {
+      return s(r.kdkec) === s(kdkec) && s(r.kddesa) === s(kddesa) && s(r.kdsls) === s(kdsls);
+    });
+    return uniqueSorted(sub,
+      function (r) { return s(r.kdsubsls); },
+      function (r) { return { kode: s(r.kdsubsls), nama: 'Sub-SLS ' + s(r.kdsubsls), idsubsls: s(r.idsubsls) }; });
+  }
+
+  // Filter pencarian untuk searchable select: cocok ke kode ATAU nama.
+  function searchOptions(options, query) {
+    var q = s(query).trim().toLowerCase();
+    if (!q) return options.slice();
+    return options.filter(function (o) {
+      return o.kode.toLowerCase().indexOf(q) !== -1 ||
+             o.nama.toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+  return {
+    kecamatanOptions: kecamatanOptions,
+    desaOptions: desaOptions,
+    slsOptions: slsOptions,
+    subSlsOptions: subSlsOptions,
+    searchOptions: searchOptions
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = CascadeLogic;
+}
+</script>

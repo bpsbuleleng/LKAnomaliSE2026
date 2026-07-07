@@ -1,0 +1,105 @@
+<script>
+/**
+ * SearchableSelect — select ber-pencarian, vanilla JS, touch-friendly
+ * (trigger & baris opsi >= 44px). Murni DOM; derivasi & filter opsi ada di
+ * CascadeLogic. rootEl wajib punya data-name (dipakai untuk data-testid).
+ */
+function createSearchableSelect(rootEl, cfg) {
+  var name = rootEl.getAttribute('data-name');
+  var state = { options: [], selected: null, enabled: false };
+
+  rootEl.innerHTML =
+    '<button type="button" data-testid="' + name + '-trigger"' +
+    ' class="ss-trigger w-full h-12 px-4 text-left text-base rounded-xl border border-slate-300 bg-white truncate' +
+    ' disabled:bg-slate-100 disabled:text-slate-400"></button>' +
+    '<div class="ss-panel hidden absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg">' +
+      '<div class="p-2 border-b border-slate-100">' +
+        '<input type="text" data-testid="' + name + '-search" placeholder="Ketik untuk mencari..."' +
+        ' class="w-full h-11 px-3 text-base rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500">' +
+      '</div>' +
+      '<ul data-testid="' + name + '-list" class="max-h-60 overflow-y-auto py-1"></ul>' +
+    '</div>';
+
+  var trigger = rootEl.querySelector('.ss-trigger');
+  var panel = rootEl.querySelector('.ss-panel');
+  var search = rootEl.querySelector('input');
+  var list = rootEl.querySelector('ul');
+
+  function label(opt) { return '[' + opt.kode + '] ' + opt.nama; }
+
+  function renderTrigger() {
+    trigger.textContent = state.selected ? label(state.selected) : (cfg.placeholder || 'Pilih...');
+    trigger.classList.toggle('text-slate-400', !state.selected);
+    trigger.disabled = !state.enabled;
+  }
+
+  function renderList(query) {
+    var shown = CascadeLogic.searchOptions(state.options, query);
+    list.innerHTML = '';
+    if (!shown.length) {
+      var empty = document.createElement('li');
+      empty.className = 'px-4 py-3 text-sm text-slate-400';
+      empty.textContent = 'Tidak ada hasil';
+      list.appendChild(empty);
+      return;
+    }
+    shown.forEach(function (opt) {
+      var li = document.createElement('li');
+      li.setAttribute('data-kode', opt.kode);
+      li.className = 'min-h-[44px] px-4 py-3 text-base cursor-pointer hover:bg-sky-50 active:bg-sky-100';
+      li.textContent = label(opt);
+      li.addEventListener('click', function () { select(opt); });
+      list.appendChild(li);
+    });
+  }
+
+  function openPanel() {
+    panel.classList.remove('hidden');
+    search.value = '';
+    renderList('');
+    search.focus();
+  }
+  function closePanel() { panel.classList.add('hidden'); }
+
+  function select(opt) {
+    state.selected = opt;
+    renderTrigger();
+    closePanel();
+    if (cfg.onSelect) cfg.onSelect(opt);
+  }
+
+  trigger.addEventListener('click', function () {
+    if (panel.classList.contains('hidden')) openPanel(); else closePanel();
+  });
+  search.addEventListener('input', function () { renderList(search.value); });
+  document.addEventListener('click', function (ev) {
+    if (!rootEl.contains(ev.target)) closePanel();
+  });
+
+  renderTrigger();
+  return {
+    setOptions: function (opts) {
+      state.options = opts || [];
+      state.selected = null;
+      state.enabled = state.options.length > 0;
+      renderTrigger();
+    },
+    // Prefill tanpa memicu onSelect (dipakai saat buka record lama).
+    setValue: function (kode) {
+      var found = null;
+      state.options.forEach(function (o) { if (o.kode === String(kode)) found = o; });
+      state.selected = found;
+      renderTrigger();
+      return found;
+    },
+    reset: function () {
+      state.options = [];
+      state.selected = null;
+      state.enabled = false;
+      renderTrigger();
+      closePanel();
+    },
+    getSelected: function () { return state.selected; }
+  };
+}
+</script>

@@ -9,68 +9,290 @@
 
   <?!= include('LoginView'); ?>
   <?!= include('DashboardView'); ?>
+  <?!= include('RecordView'); ?>
+
+  <?!= include('CascadeLogic'); ?>
+  <?!= include('SearchableSelect'); ?>
 
   <script>
-    // State aplikasi — identitas PML hanya hidup di memory selama sesi halaman,
-    // sengaja TIDAK ditaruh di localStorage.
-    var App = { state: { pml: null } };
+    // State aplikasi — identitas PML & cache wilayah hanya hidup di memory
+    // selama sesi halaman, sengaja TIDAK ditaruh di localStorage.
+    var App = { state: { pml: null, wilayahRows: null } };
+    // Record yang sedang dibuka di view record.
+    var current = { recordId: null, jenis: null, idsubsls: '' };
+    var sel = {}; // instance SearchableSelect per level wilayah
 
     var LOGIN_ERROR_MESSAGES = {
       EMAIL_NOT_FOUND: 'Email tidak terdaftar sebagai petugas.',
       NOT_PML: 'Email ini terdaftar, tapi bukan akun PML.',
       WRONG_PASSWORD: 'Password salah.'
     };
+    var SAVE_ERROR_MESSAGES = {
+      INVALID_JENIS: 'Pilih jenis assignment dulu (Usaha / Keluarga).',
+      WILAYAH_NOT_ASSIGNED: 'Sub-SLS itu bukan assignment Anda.',
+      NOT_FOUND: 'Record tidak ditemukan.',
+      FORBIDDEN: 'Record ini bukan milik Anda.'
+    };
+
+    function el(id) { return document.getElementById(id); }
+
+    // Bungkus google.script.run jadi Promise supaya alurnya bisa di-chain.
+    function gsRun(fnName) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      return new Promise(function (resolve, reject) {
+        var runner = google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject);
+        runner[fnName].apply(runner, args);
+      });
+    }
 
     function showView(name) {
-      document.querySelectorAll('.view').forEach(function (el) { el.classList.add('hidden'); });
-      document.getElementById('view-' + name).classList.remove('hidden');
+      document.querySelectorAll('.view').forEach(function (v) { v.classList.add('hidden'); });
+      el('view-' + name).classList.remove('hidden');
     }
+
+    // ==== LOGIN ====
 
     function setLoginError(msg) {
-      var el = document.getElementById('login-error');
-      el.textContent = msg;
-      el.classList.toggle('hidden', !msg);
+      el('login-error').textContent = msg;
+      el('login-error').classList.toggle('hidden', !msg);
     }
-
     function setLoginBusy(busy) {
-      var btn = document.getElementById('login-submit');
-      btn.disabled = busy;
-      btn.textContent = busy ? 'Memeriksa…' : 'Masuk';
+      el('login-submit').disabled = busy;
+      el('login-submit').textContent = busy ? 'Memeriksa…' : 'Masuk';
     }
 
-    document.getElementById('login-form').addEventListener('submit', function (ev) {
+    el('login-form').addEventListener('submit', function (ev) {
       ev.preventDefault();
       setLoginError('');
       setLoginBusy(true);
-
-      var email = document.getElementById('login-email').value;
-      var password = document.getElementById('login-password').value;
-
-      google.script.run
-        .withSuccessHandler(function (res) {
+      gsRun('login', el('login-email').value, el('login-password').value)
+        .then(function (res) {
           setLoginBusy(false);
           if (res && res.ok) {
             App.state.pml = res.pml;
-            document.getElementById('login-password').value = '';
-            document.getElementById('dashboard-greeting').textContent =
-              'Halo, ' + res.pml.nama;
-            showView('dashboard');
+            el('login-password').value = '';
+            enterDashboard();
           } else {
             setLoginError(LOGIN_ERROR_MESSAGES[res && res.error] || 'Login gagal. Coba lagi.');
           }
         })
-        .withFailureHandler(function (err) {
+        .catch(function (err) {
           setLoginBusy(false);
-          setLoginError('Gagal terhubung ke server. Coba lagi. (' +
-            ((err && err.message) || err) + ')');
-        })
-        .login(email, password);
+          setLoginError('Gagal terhubung ke server. Coba lagi. (' + ((err && err.message) || err) + ')');
+        });
     });
 
-    document.getElementById('logout-btn').addEventListener('click', function () {
+    el('logout-btn').addEventListener('click', function () {
       App.state.pml = null;
+      App.state.wilayahRows = null;
       showView('login');
     });
+
+    // ==== DASHBOARD ====
+
+    function enterDashboard() {
+      el('dashboard-greeting').textContent = 'Halo, ' + App.state.pml.nama;
+      showView('dashboard');
+      loadRecords();
+    }
+
+    function loadRecords() {
+      el('record-list').innerHTML = '';
+      el('record-empty').classList.add('hidden');
+      el('record-loading').classList.remove('hidden');
+      gsRun('listRecords', App.state.pml.email)
+        .then(function (res) {
+          el('record-loading').classList.add('hidden');
+          var records = (res && res.ok && res.records) || [];
+          if (!records.length) { el('record-empty').classList.remove('hidden'); return; }
+          records.forEach(function (r) { el('record-list').appendChild(recordCard(r)); });
+        })
+        .catch(function () {
+          el('record-loading').classList.add('hidden');
+          el('record-empty').textContent = 'Gagal memuat record. Muat ulang halaman.';
+          el('record-empty').classList.remove('hidden');
+        });
+    }
+
+    function recordCard(r) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('data-testid', 'record-card');
+      btn.setAttribute('data-record-id', r.record_id);
+      btn.className = 'w-full text-left bg-white rounded-xl shadow p-4 active:bg-sky-50';
+      var wilayah = r.idsubsls
+        ? r.nmdesa + ' · ' + r.nmsls + ' · Sub-SLS ' + r.kdsubsls
+        : 'Wilayah belum dipilih';
+      var jenisCls = r.jenis === 'usaha' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700';
+      var statusCls = r.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700';
+      btn.innerHTML =
+        '<div class="flex gap-2 mb-1">' +
+          '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + jenisCls + '">' + r.jenis + '</span>' +
+          '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + statusCls + '">' + r.status + '</span>' +
+        '</div>' +
+        '<p class="text-sm font-medium"></p>' +
+        '<p class="text-xs text-slate-400 mt-1">Diubah: ' + String(r.updated_at || '').replace('T', ' ').slice(0, 16) + '</p>';
+      btn.querySelector('p').textContent = wilayah; // textContent: aman dari markup di nama wilayah
+      btn.addEventListener('click', function () { openExistingRecord(r.record_id); });
+      return btn;
+    }
+
+    el('new-record-btn').addEventListener('click', function () { openRecordView(null); });
+
+    function openExistingRecord(recordId) {
+      gsRun('getRecord', App.state.pml.email, recordId).then(function (res) {
+        if (res && res.ok) openRecordView(res.record);
+      });
+    }
+
+    // ==== RECORD VIEW (jenis + wilayah) ====
+
+    function initCascades() {
+      sel.kecamatan = createSearchableSelect(el('sel-kecamatan'), { placeholder: 'Pilih Kecamatan', onSelect: onKecamatan });
+      sel.desa = createSearchableSelect(el('sel-desa'), { placeholder: 'Pilih Desa', onSelect: onDesa });
+      sel.sls = createSearchableSelect(el('sel-sls'), { placeholder: 'Pilih SLS', onSelect: onSls });
+      sel.subsls = createSearchableSelect(el('sel-subsls'), { placeholder: 'Pilih Sub-SLS', onSelect: onSubSls });
+    }
+
+    function rowsAssigned() { return App.state.wilayahRows || []; }
+
+    // Ganti pilihan level atas SELALU me-reset level bawah + info PPL.
+    function onKecamatan(opt) {
+      sel.desa.setOptions(CascadeLogic.desaOptions(rowsAssigned(), opt.kode));
+      sel.sls.reset();
+      sel.subsls.reset();
+      clearPpl();
+    }
+    function onDesa(opt) {
+      var kec = sel.kecamatan.getSelected().kode;
+      sel.sls.setOptions(CascadeLogic.slsOptions(rowsAssigned(), kec, opt.kode));
+      sel.subsls.reset();
+      clearPpl();
+    }
+    function onSls(opt) {
+      var kec = sel.kecamatan.getSelected().kode;
+      var desa = sel.desa.getSelected().kode;
+      sel.subsls.setOptions(CascadeLogic.subSlsOptions(rowsAssigned(), kec, desa, opt.kode));
+      clearPpl();
+    }
+    function onSubSls(opt) {
+      current.idsubsls = opt.idsubsls;
+      loadPpl(opt.idsubsls);
+    }
+
+    function loadPpl(idsubsls) {
+      gsRun('getPPL', idsubsls).then(function (res) {
+        if (res && res.ok) {
+          el('ppl-nama').textContent = res.ppl.nmppl || '—';
+          el('pml-nama').textContent = res.ppl.nmpml || '—';
+          el('ppl-info').classList.remove('hidden');
+        }
+      });
+    }
+    function clearPpl() {
+      current.idsubsls = '';
+      el('ppl-info').classList.add('hidden');
+    }
+
+    function setJenisUI(jenis) {
+      current.jenis = jenis;
+      ['usaha', 'keluarga'].forEach(function (j) {
+        var b = el('jenis-' + j);
+        var on = j === jenis;
+        b.classList.toggle('bg-sky-600', on);
+        b.classList.toggle('text-white', on);
+        b.classList.toggle('border-sky-600', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+    el('jenis-usaha').addEventListener('click', function () { setJenisUI('usaha'); });
+    el('jenis-keluarga').addEventListener('click', function () { setJenisUI('keluarga'); });
+
+    function showRecordError(msg) {
+      el('record-error').textContent = msg;
+      el('record-error').classList.toggle('hidden', !msg);
+    }
+
+    function ensureWilayah() {
+      if (App.state.wilayahRows) return Promise.resolve(App.state.wilayahRows);
+      return gsRun('getWilayah', App.state.pml.email).then(function (res) {
+        App.state.wilayahRows = (res && res.ok && res.rows) || [];
+        return App.state.wilayahRows;
+      });
+    }
+
+    function openRecordView(record) {
+      current = {
+        recordId: record ? record.record_id : null,
+        jenis: record ? record.jenis : null,
+        idsubsls: ''
+      };
+      el('record-title').textContent = record ? 'Edit Record' : 'Record Baru';
+      setJenisUI(current.jenis);
+      showRecordError('');
+      clearPpl();
+      sel.kecamatan.reset(); sel.desa.reset(); sel.sls.reset(); sel.subsls.reset();
+      showView('record');
+
+      ensureWilayah().then(function (rows) {
+        // PML tanpa assignment: pesan eksplisit, BUKAN dropdown kosong diam-diam.
+        var hasAssignment = rows.length > 0;
+        el('no-assignment').classList.toggle('hidden', hasAssignment);
+        el('wilayah-section').classList.toggle('hidden', !hasAssignment);
+        el('record-save').disabled = !hasAssignment;
+        if (!hasAssignment) return;
+        sel.kecamatan.setOptions(CascadeLogic.kecamatanOptions(rows));
+        if (record && record.wilayah && record.wilayah.idsubsls) prefillWilayah(record.wilayah);
+      });
+    }
+
+    // Prefill cascade dari snapshot wilayah record lama (setValue tidak memicu
+    // onSelect, jadi opsi tiap level diisi manual berurutan).
+    function prefillWilayah(w) {
+      var rows = rowsAssigned();
+      sel.kecamatan.setValue(w.kdkec);
+      sel.desa.setOptions(CascadeLogic.desaOptions(rows, w.kdkec));
+      sel.desa.setValue(w.kddesa);
+      sel.sls.setOptions(CascadeLogic.slsOptions(rows, w.kdkec, w.kddesa));
+      sel.sls.setValue(w.kdsls);
+      sel.subsls.setOptions(CascadeLogic.subSlsOptions(rows, w.kdkec, w.kddesa, w.kdsls));
+      sel.subsls.setValue(w.kdsubsls);
+      current.idsubsls = w.idsubsls;
+      loadPpl(w.idsubsls);
+    }
+
+    el('record-back').addEventListener('click', function () { enterDashboard(); });
+
+    el('record-save').addEventListener('click', function () {
+      if (!current.jenis) {
+        showRecordError(SAVE_ERROR_MESSAGES.INVALID_JENIS);
+        return;
+      }
+      showRecordError('');
+      var btn = el('record-save');
+      btn.disabled = true;
+      btn.textContent = 'Menyimpan…';
+      gsRun('saveDraft', App.state.pml.email, {
+        record_id: current.recordId,
+        jenis: current.jenis,
+        idsubsls: current.idsubsls
+      })
+        .then(function (res) {
+          btn.disabled = false;
+          btn.textContent = 'Simpan Sementara';
+          if (res && res.ok) enterDashboard();
+          else showRecordError(SAVE_ERROR_MESSAGES[res && res.error] || 'Gagal menyimpan.');
+        })
+        .catch(function () {
+          btn.disabled = false;
+          btn.textContent = 'Simpan Sementara';
+          showRecordError('Gagal terhubung ke server. Coba lagi.');
+        });
+    });
+
+    initCascades();
   </script>
 </body>
 </html>

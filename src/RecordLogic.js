@@ -1,0 +1,125 @@
+/**
+ * RecordLogic — transformasi murni atas array Records (dipakai server).
+ * Tanpa dependency GAS; di-unit-test di Node. Tidak memutasi input —
+ * fungsi yang mengubah data mengembalikan array records BARU.
+ */
+var RecordLogic = (function () {
+  function normEmail(email) {
+    return String(email == null ? '' : email).trim().toLowerCase();
+  }
+  function s(v) { return String(v == null ? '' : v); }
+
+  // Snapshot wilayah disalin dari baris alokasi saat simpan (bukan live-join),
+  // supaya riwayat record tidak berubah kalau Alokasi Wilayah diperbarui.
+  function buildWilayahSnapshot(row) {
+    if (!row) {
+      return {
+        idsubsls: '', kdprov: '', kdkab: '', kdkec: '', kddesa: '', kdsls: '', kdsubsls: '',
+        nmprov: '', nmkab: '', nmkec: '', nmdesa: '', nmsls: '',
+        nmppl: '', nmpml: '', emailppl: '', emailpml: ''
+      };
+    }
+    return {
+      idsubsls: s(row.idsubsls),
+      kdprov: s(row.kdprov), kdkab: s(row.kdkab), kdkec: s(row.kdkec),
+      kddesa: s(row.kddesa), kdsls: s(row.kdsls), kdsubsls: s(row.kdsubsls),
+      nmprov: s(row.nmprov), nmkab: s(row.nmkab), nmkec: s(row.nmkec),
+      nmdesa: s(row.nmdesa), nmsls: s(row.nmsls),
+      nmppl: s(row.nmppl), nmpml: s(row.nmpml),
+      emailppl: normEmail(row.emailppl), emailpml: normEmail(row.emailpml)
+    };
+  }
+
+  function summarize(rec) {
+    var w = rec.wilayah || {};
+    return {
+      record_id: rec.record_id, jenis: rec.jenis, status: rec.status,
+      idsubsls: s(w.idsubsls), nmkec: s(w.nmkec), nmdesa: s(w.nmdesa),
+      nmsls: s(w.nmsls), kdsubsls: s(w.kdsubsls),
+      updated_at: rec.updated_at
+    };
+  }
+
+  function listRecordsFor(records, pmlEmail) {
+    var norm = normEmail(pmlEmail);
+    return records
+      .filter(function (r) { return normEmail(r.pml_email) === norm; })
+      .map(summarize)
+      .sort(function (a, b) { // terbaru dulu
+        return a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0;
+      });
+  }
+
+  function getRecordFor(records, pmlEmail, recordId) {
+    var norm = normEmail(pmlEmail);
+    var rec = null;
+    for (var i = 0; i < records.length; i++) {
+      if (records[i].record_id === recordId) { rec = records[i]; break; }
+    }
+    if (!rec) return { ok: false, error: 'NOT_FOUND' };
+    if (normEmail(rec.pml_email) !== norm) return { ok: false, error: 'FORBIDDEN' };
+    return { ok: true, record: rec };
+  }
+
+  /**
+   * @param input {record_id?, jenis, idsubsls?} dari client
+   * @param assignedRows baris alokasi MILIK pmlEmail (sudah difilter) —
+   *        idsubsls di luar daftar ini DITOLAK (enforcement di server).
+   * @param nowIso timestamp ISO; newId id record baru — dua-duanya disuntik
+   *        supaya fungsi tetap murni & deterministik saat dites.
+   */
+  function applySaveDraft(records, pmlEmail, input, assignedRows, nowIso, newId) {
+    var norm = normEmail(pmlEmail);
+    input = input || {};
+    if (input.jenis !== 'usaha' && input.jenis !== 'keluarga') {
+      return { ok: false, error: 'INVALID_JENIS' };
+    }
+
+    var idsubsls = s(input.idsubsls).trim();
+    var alokasiRow = null;
+    if (idsubsls) {
+      for (var i = 0; i < assignedRows.length; i++) {
+        if (s(assignedRows[i].idsubsls) === idsubsls) { alokasiRow = assignedRows[i]; break; }
+      }
+      if (!alokasiRow) return { ok: false, error: 'WILAYAH_NOT_ASSIGNED' };
+    }
+    // Draft boleh belum punya wilayah (idsubsls kosong → snapshot kosong).
+    var wilayah = buildWilayahSnapshot(alokasiRow);
+
+    if (input.record_id) {
+      var idx = -1;
+      for (var j = 0; j < records.length; j++) {
+        if (records[j].record_id === input.record_id) { idx = j; break; }
+      }
+      if (idx === -1) return { ok: false, error: 'NOT_FOUND' };
+      if (normEmail(records[idx].pml_email) !== norm) return { ok: false, error: 'FORBIDDEN' };
+      var updated = {};
+      Object.keys(records[idx]).forEach(function (k) { updated[k] = records[idx][k]; });
+      updated.jenis = input.jenis;
+      updated.wilayah = wilayah;
+      updated.updated_at = nowIso;
+      var copy = records.slice();
+      copy[idx] = updated;
+      return { ok: true, records: copy, record_id: updated.record_id, updated_at: nowIso };
+    }
+
+    var rec = {
+      record_id: newId, pml_email: norm, jenis: input.jenis, status: 'draft',
+      wilayah: wilayah, answers: {}, anomalies: [],
+      created_at: nowIso, updated_at: nowIso
+    };
+    return { ok: true, records: records.concat([rec]), record_id: newId, updated_at: nowIso };
+  }
+
+  return {
+    buildWilayahSnapshot: buildWilayahSnapshot,
+    summarize: summarize,
+    listRecordsFor: listRecordsFor,
+    getRecordFor: getRecordFor,
+    applySaveDraft: applySaveDraft
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = RecordLogic;
+}

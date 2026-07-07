@@ -1,0 +1,70 @@
+<section id="view-record" data-testid="record-view" class="view hidden max-w-md mx-auto px-4 py-6">
+  <button id="record-back" data-testid="record-back" type="button"
+    class="mb-3 h-11 px-3 rounded-lg text-sky-700 font-medium active:bg-sky-50">&larr; Kembali</button>
+
+  <div class="bg-white rounded-2xl shadow p-5 space-y-5">
+    <h1 id="record-title" class="text-xl font-bold">Record Baru</h1>
+
+    <div>
+      <p class="text-sm font-medium mb-2">Jenis assignment</p>
+      <div class="grid grid-cols-2 gap-3">
+        <button type="button" id="jenis-usaha" data-testid="jenis-usaha" aria-pressed="false"
+          class="jenis-btn h-12 rounded-xl border border-slate-300 text-base font-medium">Usaha</button>
+        <button type="button" id="jenis-keluarga" data-testid="jenis-keluarga" aria-pressed="false"
+          class="jenis-btn h-12 rounded-xl border border-slate-300 text-base font-medium">Keluarga</button>
+      </div>
+    </div>
+
+    <div id="no-assignment" data-testid="no-assignment"
+      class="hidden rounded-xl bg-amber-50 border border-amber-300 text-amber-800 text-sm p-4">
+      <p class="font-semibold mb-1">Belum ada assignment wilayah</p>
+      Akun Anda tidak punya Sub-SLS di Alokasi Wilayah, jadi belum bisa membuat
+      record. Hubungi admin BPS Kabupaten Buleleng untuk melengkapi alokasi.
+    </div>
+
+    <div id="wilayah-section" class="space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium mb-1">Provinsi</label>
+          <input value="[51] Bali" readonly data-testid="prov"
+            class="w-full h-12 px-3 text-base rounded-xl border border-slate-200 bg-slate-100 text-slate-500">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Kabupaten</label>
+          <input value="[08] Buleleng" readonly data-testid="kab"
+            class="w-full h-12 px-3 text-base rounded-xl border border-slate-200 bg-slate-100 text-slate-500">
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Kecamatan</label>
+        <div id="sel-kecamatan" data-name="kecamatan" class="relative"></div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Desa/Kelurahan</label>
+        <div id="sel-desa" data-name="desa" class="relative"></div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">SLS</label>
+        <div id="sel-sls" data-name="sls" class="relative"></div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Sub-SLS</label>
+        <div id="sel-subsls" data-name="subsls" class="relative"></div>
+      </div>
+
+      <div id="ppl-info" data-testid="ppl-info"
+        class="hidden rounded-xl bg-sky-50 border border-sky-200 p-4 text-sm space-y-1">
+        <p class="text-slate-500">Petugas wilayah ini:</p>
+        <p>PPL: <span id="ppl-nama" data-testid="ppl-nama" class="font-semibold"></span></p>
+        <p>PML: <span id="pml-nama" data-testid="pml-nama" class="font-semibold"></span></p>
+      </div>
+    </div>
+
+    <p id="record-error" data-testid="record-error" class="hidden text-sm text-red-600"></p>
+
+    <button id="record-save" data-testid="record-save" type="button"
+      class="w-full h-12 rounded-xl bg-sky-600 text-white text-base font-semibold active:bg-sky-700 disabled:opacity-50">
+      Simpan Sementara
+    </button>
+  </div>
+</section>

@@ -1,13 +1,21 @@
-<section id="view-dashboard" data-testid="dashboard-view" class="view hidden max-w-md mx-auto px-4 py-10">
-  <div class="bg-white rounded-2xl shadow p-5">
-    <h1 class="text-xl font-bold mb-2">Dashboard</h1>
-    <p id="dashboard-greeting" data-testid="dashboard-greeting" class="text-slate-700"></p>
-    <p class="text-sm text-slate-400 mt-2">
-      Placeholder &mdash; daftar record &amp; tombol buat record menyusul di fase berikutnya.
-    </p>
-    <button id="logout-btn" data-testid="logout-btn"
-      class="mt-6 w-full h-12 rounded-xl border border-slate-300 text-base font-medium text-slate-700 active:bg-slate-50">
+<section id="view-dashboard" data-testid="dashboard-view" class="view hidden max-w-md mx-auto px-4 py-6">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">Dashboard</h1>
+    <button id="logout-btn" data-testid="logout-btn" type="button"
+      class="h-11 px-4 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 active:bg-slate-50">
       Keluar
     </button>
   </div>
+  <p id="dashboard-greeting" data-testid="dashboard-greeting" class="text-slate-500 mb-4"></p>
+
+  <button id="new-record-btn" data-testid="new-record-btn" type="button"
+    class="w-full h-12 rounded-xl bg-sky-600 text-white text-base font-semibold active:bg-sky-700 mb-5">
+    + Buat Record Baru
+  </button>
+
+  <div id="record-list" data-testid="record-list" class="space-y-3"></div>
+  <p id="record-loading" class="hidden text-sm text-slate-400 text-center py-6">Memuat&hellip;</p>
+  <p id="record-empty" data-testid="record-empty" class="hidden text-sm text-slate-400 text-center py-6">
+    Belum ada record. Mulai dengan "Buat Record Baru".
+  </p>
 </section>
