@@ -43,10 +43,15 @@ async function resetMockRecords(f) {
   );
 }
 
+// Alur baru Fase 2: tombol "Buat Record" → dialog pilih jenis → kuesioner.
+async function newRecord(f, jenis) {
+  await f.getByTestId('new-record-btn').click();
+  await f.getByTestId('new-' + jenis).click();
+}
+
 test('cascade penuh KADEK: opsi terfilter, PPL/PML benar, ganti kecamatan me-reset', async ({ page }) => {
   const f = await login(page, 'kadekbudiana74@gmail.com');
-  await f.getByTestId('new-record-btn').click();
-  await f.getByTestId('jenis-keluarga').click();
+  await newRecord(f, 'keluarga');
 
   // Prov & Kab auto-terisi read-only
   await expect(f.getByTestId('prov')).toHaveValue('[51] Bali');
@@ -95,8 +100,7 @@ test('cascade penuh KADEK: opsi terfilter, PPL/PML benar, ganti kecamatan me-res
 
 test('isolasi assignment: KETUT hanya lihat wilayahnya sendiri, bukan punya KADEK', async ({ page }) => {
   const f = await login(page, 'akusury336@gmail.com');
-  await f.getByTestId('new-record-btn').click();
-  await f.getByTestId('jenis-usaha').click();
+  await newRecord(f, 'usaha');
 
   // Hanya Gerokgak — Seririt (assignment Kadek) TIDAK muncul
   expect(await openAndListKodes(f, 'kecamatan')).toEqual(['010']);
@@ -122,7 +126,7 @@ test('isolasi assignment: KETUT hanya lihat wilayahnya sendiri, bukan punya KADE
 
 test('PML tanpa assignment: pesan jelas, bukan dropdown kosong', async ({ page }) => {
   const f = await login(page, 'luhputuekayanti@gmail.com');
-  await f.getByTestId('new-record-btn').click();
+  await newRecord(f, 'usaha');
 
   await expect(f.getByTestId('no-assignment')).toBeVisible();
   await expect(f.getByTestId('no-assignment')).toContainText('Belum ada assignment wilayah');
@@ -135,8 +139,7 @@ test('simpan draft → muncul di dashboard → buka lagi ter-prefill', async ({ 
   const f = await login(page, 'kadekbudiana74@gmail.com');
   await resetMockRecords(f);
 
-  await f.getByTestId('new-record-btn').click();
-  await f.getByTestId('jenis-keluarga').click();
+  await newRecord(f, 'keluarga');
   await pick(f, 'kecamatan', '010');
   await pick(f, 'desa', '002');
   await pick(f, 'sls', '0001');
@@ -154,7 +157,7 @@ test('simpan draft → muncul di dashboard → buka lagi ter-prefill', async ({ 
   // Buka lagi: jenis & cascade ter-prefill sampai Sub-SLS + PPL tampil
   await f.getByTestId('record-card').click();
   await expect(f.getByTestId('record-view')).toBeVisible();
-  await expect(f.getByTestId('jenis-keluarga')).toHaveAttribute('aria-pressed', 'true');
+  await expect(f.getByTestId('record-jenis-chip')).toHaveText('keluarga');
   await expect(f.getByTestId('subsls-trigger')).toHaveText('[01] Sub-SLS 01');
   await expect(f.getByTestId('ppl-nama')).toHaveText('NI MADE RUSPINI');
 });

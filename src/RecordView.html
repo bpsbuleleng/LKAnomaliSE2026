@@ -1,18 +1,16 @@
 <section id="view-record" data-testid="record-view" class="view hidden max-w-md mx-auto px-4 py-6">
-  <button id="record-back" data-testid="record-back" type="button"
-    class="mb-3 h-11 px-3 rounded-lg text-sky-700 font-medium active:bg-sky-50">&larr; Kembali</button>
+  <div class="flex items-center justify-between mb-3">
+    <button id="record-back" data-testid="record-back" type="button"
+      class="h-11 px-3 rounded-lg text-sky-700 font-medium active:bg-sky-50">&larr; Kembali</button>
+    <span id="sync-indicator" data-testid="sync-indicator" data-state="idle"
+      class="hidden text-xs font-medium px-2.5 py-1.5 rounded-full"></span>
+  </div>
 
   <div class="bg-white rounded-2xl shadow p-5 space-y-5">
-    <h1 id="record-title" class="text-xl font-bold">Record Baru</h1>
-
-    <div>
-      <p class="text-sm font-medium mb-2">Jenis assignment</p>
-      <div class="grid grid-cols-2 gap-3">
-        <button type="button" id="jenis-usaha" data-testid="jenis-usaha" aria-pressed="false"
-          class="jenis-btn h-12 rounded-xl border border-slate-300 text-base font-medium">Usaha</button>
-        <button type="button" id="jenis-keluarga" data-testid="jenis-keluarga" aria-pressed="false"
-          class="jenis-btn h-12 rounded-xl border border-slate-300 text-base font-medium">Keluarga</button>
-      </div>
+    <div class="flex items-center gap-2">
+      <h1 id="record-title" class="text-xl font-bold">Record Baru</h1>
+      <span id="record-jenis-chip" data-testid="record-jenis-chip"
+        class="text-xs font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-600"></span>
     </div>
 
     <div id="no-assignment" data-testid="no-assignment"
@@ -23,6 +21,7 @@
     </div>
 
     <div id="wilayah-section" class="space-y-4">
+      <p class="text-sm font-semibold text-slate-600">Wilayah</p>
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-sm font-medium mb-1">Provinsi</label>
@@ -60,11 +59,35 @@
       </div>
     </div>
 
+    <hr class="border-slate-100">
+
+    <p class="text-sm font-semibold text-slate-600">Kuesioner</p>
+    <div id="questions-container" class="space-y-4"></div>
+    <div id="roster-container" class="space-y-5"></div>
+
     <p id="record-error" data-testid="record-error" class="hidden text-sm text-red-600"></p>
 
     <button id="record-save" data-testid="record-save" type="button"
       class="w-full h-12 rounded-xl bg-sky-600 text-white text-base font-semibold active:bg-sky-700 disabled:opacity-50">
       Simpan Sementara
     </button>
+  </div>
+
+  <!-- Dialog konfirmasi keluar saat ada perubahan belum ke-sync -->
+  <div id="exit-dialog" data-testid="exit-dialog"
+    class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
+    <div class="bg-white w-full max-w-md rounded-2xl p-5 space-y-3">
+      <h2 class="font-bold text-lg">Perubahan belum tersinkron</h2>
+      <p class="text-sm text-slate-500">
+        Ada perubahan yang belum terkirim ke server. Data tetap aman tersimpan
+        di perangkat ini.
+      </p>
+      <button id="exit-save" data-testid="exit-save" type="button"
+        class="w-full h-12 rounded-xl bg-sky-600 text-white font-semibold active:bg-sky-700">Simpan sementara &amp; keluar</button>
+      <button id="exit-discard" data-testid="exit-discard" type="button"
+        class="w-full h-12 rounded-xl border border-red-300 text-red-600 font-semibold active:bg-red-50">Buang perubahan</button>
+      <button id="exit-cancel" data-testid="exit-cancel" type="button"
+        class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+    </div>
   </div>
 </section>

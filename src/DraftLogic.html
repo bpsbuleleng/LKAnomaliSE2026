@@ -1,0 +1,139 @@
+<script>
+/**
+ * DraftLogic — logic murni model draft offline (CLIENT-side, tanpa DOM/IndexedDB).
+ * Di-unit-test di Node lewat test/helpers/loadHtmlScript.js.
+ *
+ * Model sync: `rev` naik di tiap edit; `syncedRev` = rev terakhir yang sudah
+ * diterima server. dirty = rev > syncedRev. Respons server membawa rev SAAT
+ * DIKIRIM, jadi respons yang telat tidak salah menandai "synced" kalau user
+ * sudah mengetik lagi. Single-writer: sync = kirim versi lokal terakhir.
+ * Fungsi di sini MEMUTASI draft yang diberikan (satu draft aktif per view).
+ */
+var DraftLogic = (function () {
+  function newDraft(localId, pmlEmail, jenis, nowIso) {
+    return {
+      localId: localId, record_id: null, pml_email: pmlEmail, jenis: jenis,
+      idsubsls: '', answers: { roster: {} },
+      rev: 0, syncedRev: 0, updatedLocal: nowIso
+    };
+  }
+
+  // Bentuk draft dari record server (dianggap sudah sinkron: rev == syncedRev).
+  function fromServerRecord(record) {
+    var answers = record.answers || {};
+    if (!answers.roster) answers.roster = {};
+    return {
+      localId: record.record_id, record_id: record.record_id,
+      pml_email: record.pml_email, jenis: record.jenis,
+      idsubsls: (record.wilayah && record.wilayah.idsubsls) || '',
+      answers: answers, rev: 0, syncedRev: 0, updatedLocal: record.updated_at
+    };
+  }
+
+  function isDirty(d) { return d.rev > d.syncedRev; }
+
+  function touch(d, nowIso) {
+    d.rev += 1;
+    d.updatedLocal = nowIso;
+    return d;
+  }
+
+  function markSynced(d, sentRev, recordId, updatedAt) {
+    if (sentRev > d.syncedRev) d.syncedRev = sentRev;
+    if (recordId) d.record_id = recordId;
+    return d;
+  }
+
+  function setAnswer(d, questionId, value, nowIso) {
+    d.answers[questionId] = value;
+    return touch(d, nowIso);
+  }
+
+  function setWilayah(d, idsubsls, nowIso) {
+    if (d.idsubsls === idsubsls) return d; // tidak berubah → tidak dirty
+    d.idsubsls = idsubsls;
+    return touch(d, nowIso);
+  }
+
+  function rosterRows(d, group) {
+    if (!d.answers.roster) d.answers.roster = {};
+    if (!d.answers.roster[group]) d.answers.roster[group] = [];
+    return d.answers.roster[group];
+  }
+
+  function addRosterRow(d, group, nowIso) {
+    rosterRows(d, group).push({});
+    return touch(d, nowIso);
+  }
+
+  function removeRosterRow(d, group, index, nowIso) {
+    rosterRows(d, group).splice(index, 1);
+    return touch(d, nowIso);
+  }
+
+  function setRosterField(d, group, index, questionId, value, nowIso) {
+    var rows = rosterRows(d, group);
+    if (!rows[index]) rows[index] = {};
+    rows[index][questionId] = value;
+    return touch(d, nowIso);
+  }
+
+  /**
+   * Gabungkan daftar record server + draft lokal untuk dashboard.
+   * - Record server yang punya draft lokal dirty → ditandai unsynced.
+   * - Draft lokal tanpa record server (belum pernah sync / server tak
+   *   terjangkau) → tetap tampil, jangan sampai "hilang".
+   * - Draft kosong yang tak pernah diedit (rev 0, tanpa record) di-skip.
+   */
+  function mergeDashboard(serverRecords, localDrafts) {
+    var byRecordId = {};
+    (localDrafts || []).forEach(function (d) {
+      if (d.record_id) byRecordId[d.record_id] = d;
+    });
+    var seen = {};
+    var items = (serverRecords || []).map(function (r) {
+      seen[r.record_id] = true;
+      var d = byRecordId[r.record_id];
+      var dirty = !!(d && isDirty(d));
+      return {
+        key: r.record_id, record_id: r.record_id, localId: d ? d.localId : null,
+        jenis: r.jenis, status: r.status, unsynced: dirty,
+        updated: dirty ? d.updatedLocal : r.updated_at,
+        idsubsls: r.idsubsls, nmdesa: r.nmdesa, nmsls: r.nmsls, kdsubsls: r.kdsubsls
+      };
+    });
+    (localDrafts || []).forEach(function (d) {
+      if (d.record_id && seen[d.record_id]) return;
+      if (d.rev === 0 && !d.record_id) return;
+      items.push({
+        key: d.localId, record_id: d.record_id || null, localId: d.localId,
+        jenis: d.jenis, status: 'draft', unsynced: isDirty(d),
+        updated: d.updatedLocal, idsubsls: d.idsubsls,
+        nmdesa: '', nmsls: '', kdsubsls: ''
+      });
+    });
+    items.sort(function (a, b) {
+      return a.updated < b.updated ? 1 : a.updated > b.updated ? -1 : 0;
+    });
+    return items;
+  }
+
+  return {
+    newDraft: newDraft,
+    fromServerRecord: fromServerRecord,
+    isDirty: isDirty,
+    touch: touch,
+    markSynced: markSynced,
+    setAnswer: setAnswer,
+    setWilayah: setWilayah,
+    addRosterRow: addRosterRow,
+    removeRosterRow: removeRosterRow,
+    setRosterField: setRosterField,
+    mergeDashboard: mergeDashboard
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = DraftLogic;
+}
+</script>

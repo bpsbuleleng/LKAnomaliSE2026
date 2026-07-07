@@ -97,6 +97,8 @@ var RecordLogic = (function () {
       Object.keys(records[idx]).forEach(function (k) { updated[k] = records[idx][k]; });
       updated.jenis = input.jenis;
       updated.wilayah = wilayah;
+      // Sync = kirim versi lokal terakhir (single-writer, tanpa merge per-field).
+      updated.answers = input.answers !== undefined ? input.answers : records[idx].answers;
       updated.updated_at = nowIso;
       var copy = records.slice();
       copy[idx] = updated;
@@ -105,7 +107,7 @@ var RecordLogic = (function () {
 
     var rec = {
       record_id: newId, pml_email: norm, jenis: input.jenis, status: 'draft',
-      wilayah: wilayah, answers: {}, anomalies: [],
+      wilayah: wilayah, answers: input.answers || {}, anomalies: [],
       created_at: nowIso, updated_at: nowIso
     };
     return { ok: true, records: records.concat([rec]), record_id: newId, updated_at: nowIso };

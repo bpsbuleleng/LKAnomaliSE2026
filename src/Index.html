@@ -13,13 +13,16 @@
 
   <?!= include('CascadeLogic'); ?>
   <?!= include('SearchableSelect'); ?>
+  <?!= include('DraftLogic'); ?>
+  <?!= include('DraftStore'); ?>
 
   <script>
-    // State aplikasi — identitas PML & cache wilayah hanya hidup di memory
-    // selama sesi halaman, sengaja TIDAK ditaruh di localStorage.
-    var App = { state: { pml: null, wilayahRows: null } };
-    // Record yang sedang dibuka di view record.
-    var current = { recordId: null, jenis: null, idsubsls: '' };
+    // State aplikasi — identitas PML & cache hanya hidup di memory selama sesi
+    // halaman, sengaja TIDAK ditaruh di localStorage. Draft offline ada di
+    // IndexedDB (DraftStore).
+    var App = { state: { pml: null, wilayahRows: null, questionCache: {} } };
+    // Kuesioner yang sedang terbuka + state sync engine-nya.
+    var Q = { draft: null, prefilling: false, debounceTimer: null, retryTimer: null, inFlight: false };
     var sel = {}; // instance SearchableSelect per level wilayah
 
     var LOGIN_ERROR_MESSAGES = {
@@ -28,15 +31,15 @@
       WRONG_PASSWORD: 'Password salah.'
     };
     var SAVE_ERROR_MESSAGES = {
-      INVALID_JENIS: 'Pilih jenis assignment dulu (Usaha / Keluarga).',
+      INVALID_JENIS: 'Jenis assignment tidak valid.',
       WILAYAH_NOT_ASSIGNED: 'Sub-SLS itu bukan assignment Anda.',
       NOT_FOUND: 'Record tidak ditemukan.',
       FORBIDDEN: 'Record ini bukan milik Anda.'
     };
 
     function el(id) { return document.getElementById(id); }
+    function nowIso() { return new Date().toISOString(); }
 
-    // Bungkus google.script.run jadi Promise supaya alurnya bisa di-chain.
     function gsRun(fnName) {
       var args = Array.prototype.slice.call(arguments, 1);
       return new Promise(function (resolve, reject) {
@@ -87,67 +90,102 @@
     el('logout-btn').addEventListener('click', function () {
       App.state.pml = null;
       App.state.wilayahRows = null;
+      App.state.questionCache = {};
       showView('login');
     });
 
     // ==== DASHBOARD ====
 
     function enterDashboard() {
+      stopSyncTimers();
+      Q.draft = null;
       el('dashboard-greeting').textContent = 'Halo, ' + App.state.pml.nama;
       showView('dashboard');
       loadRecords();
+      // Prefetch referensi selagi online, supaya kuesioner BARU tetap bisa
+      // dibuka saat koneksi putus (offline-safe bukan cuma untuk edit).
+      ensureWilayah().catch(function () {});
+      ensureQuestions('usaha').catch(function () {});
+      ensureQuestions('keluarga').catch(function () {});
     }
 
     function loadRecords() {
+      var email = App.state.pml.email;
       el('record-list').innerHTML = '';
       el('record-empty').classList.add('hidden');
       el('record-loading').classList.remove('hidden');
-      gsRun('listRecords', App.state.pml.email)
-        .then(function (res) {
-          el('record-loading').classList.add('hidden');
-          var records = (res && res.ok && res.records) || [];
-          if (!records.length) { el('record-empty').classList.remove('hidden'); return; }
-          records.forEach(function (r) { el('record-list').appendChild(recordCard(r)); });
-        })
-        .catch(function () {
-          el('record-loading').classList.add('hidden');
-          el('record-empty').textContent = 'Gagal memuat record. Muat ulang halaman.';
-          el('record-empty').classList.remove('hidden');
-        });
-    }
-
-    function recordCard(r) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.setAttribute('data-testid', 'record-card');
-      btn.setAttribute('data-record-id', r.record_id);
-      btn.className = 'w-full text-left bg-white rounded-xl shadow p-4 active:bg-sky-50';
-      var wilayah = r.idsubsls
-        ? r.nmdesa + ' · ' + r.nmsls + ' · Sub-SLS ' + r.kdsubsls
-        : 'Wilayah belum dipilih';
-      var jenisCls = r.jenis === 'usaha' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700';
-      var statusCls = r.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700';
-      btn.innerHTML =
-        '<div class="flex gap-2 mb-1">' +
-          '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + jenisCls + '">' + r.jenis + '</span>' +
-          '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + statusCls + '">' + r.status + '</span>' +
-        '</div>' +
-        '<p class="text-sm font-medium"></p>' +
-        '<p class="text-xs text-slate-400 mt-1">Diubah: ' + String(r.updated_at || '').replace('T', ' ').slice(0, 16) + '</p>';
-      btn.querySelector('p').textContent = wilayah; // textContent: aman dari markup di nama wilayah
-      btn.addEventListener('click', function () { openExistingRecord(r.record_id); });
-      return btn;
-    }
-
-    el('new-record-btn').addEventListener('click', function () { openRecordView(null); });
-
-    function openExistingRecord(recordId) {
-      gsRun('getRecord', App.state.pml.email, recordId).then(function (res) {
-        if (res && res.ok) openRecordView(res.record);
+      // Server bisa tak terjangkau (offline) → dashboard tetap tampil dari
+      // draft lokal, jangan sampai record "hilang" dari daftar.
+      var serverP = gsRun('listRecords', email)
+        .then(function (res) { return (res && res.ok && res.records) || []; })
+        .catch(function () { return null; });
+      var localP = DraftStore.getAll(email).catch(function () { return []; });
+      Promise.all([serverP, localP]).then(function (vals) {
+        el('record-loading').classList.add('hidden');
+        var items = DraftLogic.mergeDashboard(vals[0] || [], vals[1]);
+        if (!items.length) { el('record-empty').classList.remove('hidden'); return; }
+        items.forEach(function (item) { el('record-list').appendChild(dashCard(item)); });
       });
     }
 
-    // ==== RECORD VIEW (jenis + wilayah) ====
+    function dashCard(item) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('data-testid', 'record-card');
+      btn.className = 'w-full text-left bg-white rounded-xl shadow p-4 active:bg-sky-50';
+      var wilayah = item.idsubsls
+        ? (item.nmdesa ? item.nmdesa + ' · ' + item.nmsls + ' · Sub-SLS ' + item.kdsubsls
+                       : 'Sub-SLS ' + item.idsubsls)
+        : 'Wilayah belum dipilih';
+      var jenisCls = item.jenis === 'usaha' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700';
+      var statusCls = item.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700';
+      var badges =
+        '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + jenisCls + '">' + item.jenis + '</span>' +
+        '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + statusCls + '">' + item.status + '</span>';
+      if (item.unsynced) {
+        badges += '<span data-testid="unsynced-badge" class="text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">belum sync</span>';
+      }
+      btn.innerHTML =
+        '<div class="flex flex-wrap gap-2 mb-1">' + badges + '</div>' +
+        '<p class="text-sm font-medium"></p>' +
+        '<p class="text-xs text-slate-400 mt-1">Diubah: ' + String(item.updated || '').replace('T', ' ').slice(0, 16) + '</p>';
+      btn.querySelector('p').textContent = wilayah;
+      btn.addEventListener('click', function () {
+        if (item.localId) openLocalDraft(item.localId);
+        else openExistingRecord(item.record_id);
+      });
+      return btn;
+    }
+
+    // Jenis dipilih SEBELUM kuesioner terbuka (alur brief poin 3).
+    el('new-record-btn').addEventListener('click', function () {
+      el('jenis-dialog').classList.remove('hidden');
+    });
+    el('jenis-cancel').addEventListener('click', function () {
+      el('jenis-dialog').classList.add('hidden');
+    });
+    el('new-usaha').addEventListener('click', function () { startNewRecord('usaha'); });
+    el('new-keluarga').addEventListener('click', function () { startNewRecord('keluarga'); });
+
+    function startNewRecord(jenis) {
+      el('jenis-dialog').classList.add('hidden');
+      var localId = 'L-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      openQuestionnaire(DraftLogic.newDraft(localId, App.state.pml.email, jenis, nowIso()), null);
+    }
+
+    function openLocalDraft(localId) {
+      DraftStore.get(localId).then(function (d) {
+        if (d) openQuestionnaire(d, null);
+      });
+    }
+
+    function openExistingRecord(recordId) {
+      gsRun('getRecord', App.state.pml.email, recordId).then(function (res) {
+        if (res && res.ok) openQuestionnaire(DraftLogic.fromServerRecord(res.record), res.record.wilayah);
+      });
+    }
+
+    // ==== WILAYAH CASCADE (dari Fase 1) ====
 
     function initCascades() {
       sel.kecamatan = createSearchableSelect(el('sel-kecamatan'), { placeholder: 'Pilih Kecamatan', onSelect: onKecamatan });
@@ -158,28 +196,35 @@
 
     function rowsAssigned() { return App.state.wilayahRows || []; }
 
-    // Ganti pilihan level atas SELALU me-reset level bawah + info PPL.
     function onKecamatan(opt) {
       sel.desa.setOptions(CascadeLogic.desaOptions(rowsAssigned(), opt.kode));
       sel.sls.reset();
       sel.subsls.reset();
-      clearPpl();
+      clearPplDisplay();
+      onWilayahChanged('');
     }
     function onDesa(opt) {
-      var kec = sel.kecamatan.getSelected().kode;
-      sel.sls.setOptions(CascadeLogic.slsOptions(rowsAssigned(), kec, opt.kode));
+      sel.sls.setOptions(CascadeLogic.slsOptions(rowsAssigned(), sel.kecamatan.getSelected().kode, opt.kode));
       sel.subsls.reset();
-      clearPpl();
+      clearPplDisplay();
+      onWilayahChanged('');
     }
     function onSls(opt) {
-      var kec = sel.kecamatan.getSelected().kode;
-      var desa = sel.desa.getSelected().kode;
-      sel.subsls.setOptions(CascadeLogic.subSlsOptions(rowsAssigned(), kec, desa, opt.kode));
-      clearPpl();
+      sel.subsls.setOptions(CascadeLogic.subSlsOptions(rowsAssigned(),
+        sel.kecamatan.getSelected().kode, sel.desa.getSelected().kode, opt.kode));
+      clearPplDisplay();
+      onWilayahChanged('');
     }
     function onSubSls(opt) {
-      current.idsubsls = opt.idsubsls;
       loadPpl(opt.idsubsls);
+      onWilayahChanged(opt.idsubsls);
+    }
+
+    function onWilayahChanged(idsubsls) {
+      if (Q.prefilling || !Q.draft) return;
+      var before = Q.draft.rev;
+      DraftLogic.setWilayah(Q.draft, idsubsls, nowIso());
+      if (Q.draft.rev !== before) afterEdit();
     }
 
     function loadPpl(idsubsls) {
@@ -189,67 +234,18 @@
           el('pml-nama').textContent = res.ppl.nmpml || '—';
           el('ppl-info').classList.remove('hidden');
         }
-      });
+      }).catch(function () { /* offline: info PPL menyusul saat online */ });
     }
-    function clearPpl() {
-      current.idsubsls = '';
-      el('ppl-info').classList.add('hidden');
-    }
+    function clearPplDisplay() { el('ppl-info').classList.add('hidden'); }
 
-    function setJenisUI(jenis) {
-      current.jenis = jenis;
-      ['usaha', 'keluarga'].forEach(function (j) {
-        var b = el('jenis-' + j);
-        var on = j === jenis;
-        b.classList.toggle('bg-sky-600', on);
-        b.classList.toggle('text-white', on);
-        b.classList.toggle('border-sky-600', on);
-        b.setAttribute('aria-pressed', on ? 'true' : 'false');
-      });
-    }
-    el('jenis-usaha').addEventListener('click', function () { setJenisUI('usaha'); });
-    el('jenis-keluarga').addEventListener('click', function () { setJenisUI('keluarga'); });
-
-    function showRecordError(msg) {
-      el('record-error').textContent = msg;
-      el('record-error').classList.toggle('hidden', !msg);
+    function wilayahFromIdsubsls(idsubsls) {
+      var rows = rowsAssigned();
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].idsubsls === idsubsls) return rows[i];
+      }
+      return null;
     }
 
-    function ensureWilayah() {
-      if (App.state.wilayahRows) return Promise.resolve(App.state.wilayahRows);
-      return gsRun('getWilayah', App.state.pml.email).then(function (res) {
-        App.state.wilayahRows = (res && res.ok && res.rows) || [];
-        return App.state.wilayahRows;
-      });
-    }
-
-    function openRecordView(record) {
-      current = {
-        recordId: record ? record.record_id : null,
-        jenis: record ? record.jenis : null,
-        idsubsls: ''
-      };
-      el('record-title').textContent = record ? 'Edit Record' : 'Record Baru';
-      setJenisUI(current.jenis);
-      showRecordError('');
-      clearPpl();
-      sel.kecamatan.reset(); sel.desa.reset(); sel.sls.reset(); sel.subsls.reset();
-      showView('record');
-
-      ensureWilayah().then(function (rows) {
-        // PML tanpa assignment: pesan eksplisit, BUKAN dropdown kosong diam-diam.
-        var hasAssignment = rows.length > 0;
-        el('no-assignment').classList.toggle('hidden', hasAssignment);
-        el('wilayah-section').classList.toggle('hidden', !hasAssignment);
-        el('record-save').disabled = !hasAssignment;
-        if (!hasAssignment) return;
-        sel.kecamatan.setOptions(CascadeLogic.kecamatanOptions(rows));
-        if (record && record.wilayah && record.wilayah.idsubsls) prefillWilayah(record.wilayah);
-      });
-    }
-
-    // Prefill cascade dari snapshot wilayah record lama (setValue tidak memicu
-    // onSelect, jadi opsi tiap level diisi manual berurutan).
     function prefillWilayah(w) {
       var rows = rowsAssigned();
       sel.kecamatan.setValue(w.kdkec);
@@ -259,37 +255,368 @@
       sel.sls.setValue(w.kdsls);
       sel.subsls.setOptions(CascadeLogic.subSlsOptions(rows, w.kdkec, w.kddesa, w.kdsls));
       sel.subsls.setValue(w.kdsubsls);
-      current.idsubsls = w.idsubsls;
       loadPpl(w.idsubsls);
     }
 
-    el('record-back').addEventListener('click', function () { enterDashboard(); });
+    // ==== KUESIONER: buka + render dinamis ====
 
-    el('record-save').addEventListener('click', function () {
-      if (!current.jenis) {
-        showRecordError(SAVE_ERROR_MESSAGES.INVALID_JENIS);
+    function ensureWilayah() {
+      if (App.state.wilayahRows) return Promise.resolve(App.state.wilayahRows);
+      return gsRun('getWilayah', App.state.pml.email).then(function (res) {
+        App.state.wilayahRows = (res && res.ok && res.rows) || [];
+        return App.state.wilayahRows;
+      });
+    }
+
+    function ensureQuestions(jenis) {
+      if (App.state.questionCache[jenis]) return Promise.resolve(App.state.questionCache[jenis]);
+      return gsRun('getQuestions', jenis).then(function (res) {
+        App.state.questionCache[jenis] = (res && res.ok && res.questions) || [];
+        return App.state.questionCache[jenis];
+      });
+    }
+
+    function openQuestionnaire(draft, wilayahSnapshot) {
+      Q.draft = draft;
+      Q.prefilling = true;
+      stopSyncTimers();
+      el('record-title').textContent = draft.record_id ? 'Edit Record' : 'Record Baru';
+      el('record-jenis-chip').textContent = draft.jenis;
+      showRecordError('');
+      clearPplDisplay();
+      sel.kecamatan.reset(); sel.desa.reset(); sel.sls.reset(); sel.subsls.reset();
+      el('questions-container').innerHTML = '';
+      el('roster-container').innerHTML = '';
+      refreshSyncIndicator();
+      showView('record');
+
+      Promise.all([ensureWilayah(), ensureQuestions(draft.jenis)]).then(function (vals) {
+        var rows = vals[0];
+        var questions = vals[1];
+        var hasAssignment = rows.length > 0;
+        el('no-assignment').classList.toggle('hidden', hasAssignment);
+        el('wilayah-section').classList.toggle('hidden', !hasAssignment);
+        el('record-save').disabled = !hasAssignment;
+        if (hasAssignment) {
+          sel.kecamatan.setOptions(CascadeLogic.kecamatanOptions(rows));
+          var w = (wilayahSnapshot && wilayahSnapshot.idsubsls)
+            ? wilayahSnapshot
+            : wilayahFromIdsubsls(draft.idsubsls);
+          if (w && w.idsubsls) prefillWilayah(w);
+        }
+        renderQuestionnaire(questions, draft);
+        Q.prefilling = false;
+        // Lanjutkan sync draft yang masih dirty (mis. dibuat saat offline).
+        if (DraftLogic.isDirty(draft)) attemptSync();
+      }).catch(function () {
+        Q.prefilling = false;
+        showRecordError('Gagal memuat kuesioner — periksa koneksi lalu coba lagi.');
+      });
+    }
+
+    function renderQuestionnaire(questions, draft) {
+      var qc = el('questions-container');
+      var rc = el('roster-container');
+      qc.innerHTML = '';
+      rc.innerHTML = '';
+      var flat = [];
+      var groups = {};
+      var groupOrder = [];
+      questions.forEach(function (q) {
+        if (q.roster_group) {
+          if (!groups[q.roster_group]) { groups[q.roster_group] = []; groupOrder.push(q.roster_group); }
+          groups[q.roster_group].push(q);
+        } else {
+          flat.push(q);
+        }
+      });
+      flat.forEach(function (q) {
+        qc.appendChild(fieldElement(q, draft.answers[q.question_id], function (value) {
+          DraftLogic.setAnswer(Q.draft, q.question_id, value, nowIso());
+          afterEdit();
+        }, ''));
+      });
+      groupOrder.forEach(function (g) { rc.appendChild(rosterSection(g, groups[g])); });
+    }
+
+    var INPUT_CLS = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500';
+
+    function fieldElement(q, value, onChange, testidSuffix) {
+      var wrap = document.createElement('div');
+      var lbl = document.createElement('label');
+      lbl.className = 'block text-sm font-medium mb-1';
+      lbl.textContent = q.label + (q.required ? ' *' : '');
+      wrap.appendChild(lbl);
+
+      var input;
+      if (q.type === 'select') {
+        input = document.createElement('select');
+        input.className = INPUT_CLS;
+        input.appendChild(new Option('— pilih —', ''));
+        (q.options || []).forEach(function (o) { input.appendChild(new Option(o.label, String(o.value))); });
+        if (value !== undefined && value !== null && value !== '') input.value = String(value);
+        input.addEventListener('change', function () {
+          var raw = input.value;
+          var typed = raw; // simpan value bertipe asli (angka utk kode kategorik)
+          (q.options || []).forEach(function (o) { if (String(o.value) === raw) typed = o.value; });
+          onChange(raw === '' ? '' : typed);
+        });
+      } else if (q.type === 'textarea') {
+        input = document.createElement('textarea');
+        input.rows = 3;
+        input.className = INPUT_CLS.replace('h-12', 'py-3');
+        input.value = value != null ? value : '';
+        input.addEventListener('input', function () { onChange(input.value); });
+      } else if (q.type === 'number') {
+        input = document.createElement('input');
+        input.type = 'number';
+        input.setAttribute('inputmode', 'decimal');
+        input.className = INPUT_CLS;
+        input.value = (value === 0 || value) ? value : '';
+        input.addEventListener('input', function () {
+          onChange(input.value === '' ? '' : Number(input.value));
+        });
+      } else { // text | date
+        input = document.createElement('input');
+        input.type = q.type === 'date' ? 'date' : 'text';
+        input.className = INPUT_CLS;
+        input.value = value != null ? value : '';
+        input.addEventListener('input', function () { onChange(input.value); });
+      }
+      input.setAttribute('data-testid', 'q-' + q.question_id + (testidSuffix || ''));
+      wrap.appendChild(input);
+
+      if (q.help) {
+        var help = document.createElement('p');
+        help.className = 'text-xs text-slate-400 mt-1';
+        help.textContent = q.help;
+        wrap.appendChild(help);
+      }
+      return wrap;
+    }
+
+    function rosterTitle(group) {
+      return group.split('_').map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+    }
+
+    function rosterSection(group, fields) {
+      var sec = document.createElement('div');
+      sec.className = 'space-y-3';
+      var title = document.createElement('p');
+      title.className = 'text-sm font-semibold text-slate-600';
+      title.textContent = rosterTitle(group);
+      sec.appendChild(title);
+
+      var rowsWrap = document.createElement('div');
+      rowsWrap.className = 'space-y-3';
+      sec.appendChild(rowsWrap);
+
+      var addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.setAttribute('data-testid', 'roster-add-' + group);
+      addBtn.className = 'w-full h-12 rounded-xl border border-dashed border-sky-400 text-sky-700 font-medium active:bg-sky-50';
+      addBtn.textContent = '+ Tambah ' + rosterTitle(group);
+      addBtn.addEventListener('click', function () {
+        DraftLogic.addRosterRow(Q.draft, group, nowIso());
+        afterEdit();
+        renderRosterRows(rowsWrap, group, fields);
+      });
+      sec.appendChild(addBtn);
+
+      renderRosterRows(rowsWrap, group, fields);
+      return sec;
+    }
+
+    function renderRosterRows(rowsWrap, group, fields) {
+      var rows = (Q.draft.answers.roster && Q.draft.answers.roster[group]) || [];
+      rowsWrap.innerHTML = '';
+      if (!rows.length) {
+        var empty = document.createElement('p');
+        empty.className = 'text-sm text-slate-400';
+        empty.textContent = 'Belum ada baris.';
+        rowsWrap.appendChild(empty);
         return;
       }
-      showRecordError('');
-      var btn = el('record-save');
-      btn.disabled = true;
-      btn.textContent = 'Menyimpan…';
-      gsRun('saveDraft', App.state.pml.email, {
-        record_id: current.recordId,
-        jenis: current.jenis,
-        idsubsls: current.idsubsls
+      rows.forEach(function (rowData, i) {
+        var card = document.createElement('div');
+        card.setAttribute('data-testid', 'roster-row-' + group + '-' + i);
+        card.className = 'bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3';
+
+        var head = document.createElement('div');
+        head.className = 'flex items-center justify-between';
+        var no = document.createElement('p');
+        no.className = 'text-sm font-semibold';
+        no.textContent = '#' + (i + 1);
+        var rm = document.createElement('button');
+        rm.type = 'button';
+        rm.setAttribute('data-testid', 'roster-remove-' + group + '-' + i);
+        rm.className = 'h-11 px-3 rounded-lg text-red-600 text-sm font-medium active:bg-red-50';
+        rm.textContent = 'Hapus';
+        rm.addEventListener('click', function () {
+          DraftLogic.removeRosterRow(Q.draft, group, i, nowIso());
+          afterEdit();
+          renderRosterRows(rowsWrap, group, fields);
+        });
+        head.appendChild(no);
+        head.appendChild(rm);
+        card.appendChild(head);
+
+        fields.forEach(function (q) {
+          card.appendChild(fieldElement(q, rowData[q.question_id], function (value) {
+            DraftLogic.setRosterField(Q.draft, group, i, q.question_id, value, nowIso());
+            afterEdit();
+          }, '-' + i));
+        });
+        rowsWrap.appendChild(card);
+      });
+    }
+
+    // ==== SYNC ENGINE (IndexedDB dulu, server menyusul) ====
+
+    function stopSyncTimers() {
+      clearTimeout(Q.debounceTimer);
+      clearTimeout(Q.retryTimer);
+    }
+
+    // Dipanggil di TIAP edit: tulis lokal SEGERA (debounced), lalu coba server.
+    function afterEdit() {
+      refreshSyncIndicator();
+      clearTimeout(Q.debounceTimer);
+      Q.debounceTimer = setTimeout(persistLocalThenSync, 600);
+    }
+
+    function persistLocalThenSync() {
+      var d = Q.draft;
+      if (!d) return Promise.resolve();
+      return DraftStore.put(d).then(function () { return attemptSync(); });
+    }
+
+    // Kirim versi lokal terakhir. Return Promise<boolean> sukses-tidaknya.
+    function attemptSync() {
+      var d = Q.draft;
+      if (!d || !DraftLogic.isDirty(d)) { refreshSyncIndicator(); return Promise.resolve(true); }
+      if (Q.inFlight) return Promise.resolve(false);
+      Q.inFlight = true;
+      var sentRev = d.rev;
+      refreshSyncIndicator(true);
+      return gsRun('saveDraft', App.state.pml.email, {
+        record_id: d.record_id, jenis: d.jenis, idsubsls: d.idsubsls, answers: d.answers
       })
         .then(function (res) {
-          btn.disabled = false;
-          btn.textContent = 'Simpan Sementara';
-          if (res && res.ok) enterDashboard();
-          else showRecordError(SAVE_ERROR_MESSAGES[res && res.error] || 'Gagal menyimpan.');
+          Q.inFlight = false;
+          if (res && res.ok) {
+            DraftLogic.markSynced(d, sentRev, res.record_id, res.updated_at);
+            return DraftStore.put(d).then(function () {
+              refreshSyncIndicator();
+              if (DraftLogic.isDirty(d)) return attemptSync(); // user ngetik saat in-flight
+              return true;
+            });
+          }
+          // Error logis dari server (bukan network) → tampilkan, jangan retry buta.
+          refreshSyncIndicator();
+          showRecordError(SAVE_ERROR_MESSAGES[res && res.error] || 'Gagal menyimpan ke server.');
+          return false;
         })
         .catch(function () {
-          btn.disabled = false;
-          btn.textContent = 'Simpan Sementara';
-          showRecordError('Gagal terhubung ke server. Coba lagi.');
+          // Network gagal (offline dsb) → data sudah aman di IndexedDB, retry otomatis.
+          Q.inFlight = false;
+          refreshSyncIndicator();
+          scheduleRetry();
+          return false;
         });
+    }
+
+    function scheduleRetry() {
+      clearTimeout(Q.retryTimer);
+      Q.retryTimer = setTimeout(attemptSync, 5000);
+    }
+
+    window.addEventListener('online', function () { attemptSync(); });
+
+    function refreshSyncIndicator(syncing) {
+      var ind = el('sync-indicator');
+      var d = Q.draft;
+      var state, text, cls;
+      if (syncing) {
+        state = 'syncing'; text = 'Menyimpan ke server…'; cls = 'bg-slate-100 text-slate-500';
+      } else if (!d || (d.rev === 0 && !d.record_id)) {
+        state = 'idle'; text = ''; cls = '';
+      } else if (DraftLogic.isDirty(d)) {
+        state = 'dirty'; text = 'Tersimpan lokal — belum sync'; cls = 'bg-amber-100 text-amber-800';
+      } else {
+        state = 'synced'; text = 'Tersync ke server ✓'; cls = 'bg-emerald-100 text-emerald-700';
+      }
+      ind.setAttribute('data-state', state);
+      ind.textContent = text;
+      ind.className = (state === 'idle' ? 'hidden ' : '') + 'text-xs font-medium px-2.5 py-1.5 rounded-full ' + cls;
+    }
+
+    function showRecordError(msg) {
+      el('record-error').textContent = msg;
+      el('record-error').classList.toggle('hidden', !msg);
+    }
+
+    // ==== SIMPAN MANUAL & KELUAR ====
+
+    el('record-save').addEventListener('click', function manualSave() {
+      var d = Q.draft;
+      if (!d) return;
+      if (Q.inFlight) { setTimeout(manualSave, 800); return; }
+      clearTimeout(Q.debounceTimer);
+      showRecordError('');
+      if (!DraftLogic.isDirty(d)) { enterDashboard(); return; }
+      DraftStore.put(d)
+        .then(function () { return attemptSync(); })
+        .then(function (ok) {
+          if (ok) enterDashboard();
+          else if (el('record-error').classList.contains('hidden')) {
+            showRecordError('Belum bisa terhubung ke server — perubahan aman tersimpan lokal dan akan disync otomatis.');
+          }
+        });
+    });
+
+    el('record-back').addEventListener('click', function () {
+      var d = Q.draft;
+      clearTimeout(Q.debounceTimer);
+      if (!d || !DraftLogic.isDirty(d)) { enterDashboard(); return; }
+      // Pastikan versi terakhir tersimpan lokal sebelum user memutuskan.
+      DraftStore.put(d);
+      el('exit-dialog').classList.remove('hidden');
+    });
+
+    el('exit-cancel').addEventListener('click', function () {
+      el('exit-dialog').classList.add('hidden');
+    });
+
+    el('exit-save').addEventListener('click', function () {
+      el('exit-dialog').classList.add('hidden');
+      var d = Q.draft;
+      // Sync di background dengan referensi draft sendiri (Q.draft segera
+      // di-null-kan oleh enterDashboard). Gagal pun data aman di IndexedDB.
+      DraftStore.put(d).then(function () { syncDraftInBackground(d); });
+      enterDashboard();
+    });
+
+    function syncDraftInBackground(d) {
+      var sentRev = d.rev;
+      gsRun('saveDraft', App.state.pml.email, {
+        record_id: d.record_id, jenis: d.jenis, idsubsls: d.idsubsls, answers: d.answers
+      })
+        .then(function (res) {
+          if (!(res && res.ok)) return;
+          DraftLogic.markSynced(d, sentRev, res.record_id, res.updated_at);
+          return DraftStore.put(d).then(function () {
+            // Badge "belum sync" di dashboard jadi basi → segarkan daftarnya.
+            if (!el('view-dashboard').classList.contains('hidden')) loadRecords();
+          });
+        })
+        .catch(function () { /* tetap dirty di IndexedDB; disync lagi saat dibuka */ });
+    }
+
+    el('exit-discard').addEventListener('click', function () {
+      el('exit-dialog').classList.add('hidden');
+      var d = Q.draft;
+      DraftStore.remove(d.localId).then(function () { enterDashboard(); });
     });
 
     initCascades();

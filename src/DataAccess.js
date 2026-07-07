@@ -88,7 +88,11 @@ function notImplemented_() {
 function submitRecord(pmlEmail, record) { return notImplemented_(); }
 
 // == CONFIG: baca ==
-function getQuestions(jenis, includeInactive) { return notImplemented_(); }
+function getQuestions(jenis, includeInactive) {
+  if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
+  return { ok: true, questions: QuestionLogic.selectQuestions(MockData.QUESTIONS, jenis, includeInactive === true) };
+}
+
 function getRules(jenis, includeInactive) { return notImplemented_(); }
 
 // == CONFIG: privileged — WAJIB cek adminPassword === ADMIN_PASSWORD di tiap panggilan ==

@@ -1,0 +1,47 @@
+<script>
+/**
+ * DraftStore — wrapper IndexedDB untuk draft offline (Promise-based).
+ * Murni penyimpanan; logic model draft ada di DraftLogic.
+ */
+var DraftStore = (function () {
+  var DB_NAME = 'lk_anomali';
+  var STORE = 'drafts';
+
+  function openDb() {
+    return new Promise(function (resolve, reject) {
+      var req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = function () {
+        req.result.createObjectStore(STORE, { keyPath: 'localId' });
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+
+  function tx(mode, run) {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var t = db.transaction(STORE, mode);
+        var request = run(t.objectStore(STORE));
+        t.oncomplete = function () {
+          db.close();
+          resolve(request ? request.result : undefined);
+        };
+        t.onerror = function () { db.close(); reject(t.error); };
+        t.onabort = function () { db.close(); reject(t.error); };
+      });
+    });
+  }
+
+  return {
+    put: function (draft) { return tx('readwrite', function (s) { return s.put(draft); }); },
+    get: function (localId) { return tx('readonly', function (s) { return s.get(localId); }); },
+    getAll: function (pmlEmail) {
+      return tx('readonly', function (s) { return s.getAll(); }).then(function (all) {
+        return (all || []).filter(function (d) { return d.pml_email === pmlEmail; });
+      });
+    },
+    remove: function (localId) { return tx('readwrite', function (s) { return s.delete(localId); }); }
+  };
+})();
+</script>
