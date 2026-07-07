@@ -11,6 +11,15 @@
       <h1 id="record-title" class="text-xl font-bold">Record Baru</h1>
       <span id="record-jenis-chip" data-testid="record-jenis-chip"
         class="text-xs font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-600"></span>
+      <span id="record-status-chip" data-testid="record-status-chip"
+        class="text-xs font-semibold px-2 py-1 rounded-full"></span>
+    </div>
+
+    <!-- Hasil pemeriksaan terakhir (record submitted) — laporan, BUKAN pemblokir -->
+    <div id="anomaly-section" data-testid="anomaly-section"
+      class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+      <p id="anomaly-section-title" class="text-sm font-semibold text-slate-600"></p>
+      <ul id="anomaly-list-inline" class="space-y-2"></ul>
     </div>
 
     <div id="no-assignment" data-testid="no-assignment"
@@ -65,11 +74,22 @@
     <div id="questions-container" class="space-y-4"></div>
     <div id="roster-container" class="space-y-5"></div>
 
+    <!-- Validasi isian (blocking): daftar field wajib yang belum terisi -->
+    <div id="missing-summary" data-testid="missing-summary"
+      class="hidden rounded-xl bg-red-50 border border-red-300 p-4 space-y-2">
+      <p class="text-sm font-semibold text-red-700">Belum bisa submit — isian wajib berikut belum terisi:</p>
+      <ul id="missing-list" class="list-disc pl-5 text-sm text-red-700 space-y-1"></ul>
+    </div>
+
     <p id="record-error" data-testid="record-error" class="hidden text-sm text-red-600"></p>
 
     <button id="record-save" data-testid="record-save" type="button"
       class="w-full h-12 rounded-xl bg-sky-600 text-white text-base font-semibold active:bg-sky-700 disabled:opacity-50">
       Simpan Sementara
+    </button>
+    <button id="record-submit" data-testid="record-submit" type="button"
+      class="w-full h-12 rounded-xl bg-emerald-600 text-white text-base font-semibold active:bg-emerald-700 disabled:opacity-50">
+      Submit &amp; Periksa Anomali
     </button>
   </div>
 
@@ -88,6 +108,20 @@
         class="w-full h-12 rounded-xl border border-red-300 text-red-600 font-semibold active:bg-red-50">Buang perubahan</button>
       <button id="exit-cancel" data-testid="exit-cancel" type="button"
         class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+    </div>
+  </div>
+
+  <!-- Daftar Anomali — hasil rule validation setelah submit (laporan, tidak memblokir) -->
+  <div id="anomaly-dialog" data-testid="anomaly-dialog"
+    class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
+    <div class="bg-white w-full max-w-md rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+      <h2 class="font-bold text-lg">Hasil Pemeriksaan Anomali</h2>
+      <p id="anomaly-dialog-count" data-testid="anomaly-dialog-count" class="text-sm text-slate-500"></p>
+      <ul id="anomaly-dialog-list" class="space-y-2"></ul>
+      <button id="anomaly-done" data-testid="anomaly-done" type="button"
+        class="w-full h-12 rounded-xl bg-sky-600 text-white font-semibold active:bg-sky-700">Ke Dashboard</button>
+      <button id="anomaly-close" data-testid="anomaly-close" type="button"
+        class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Tetap di Kuesioner</button>
     </div>
   </div>
 </section>

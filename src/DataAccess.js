@@ -79,13 +79,41 @@ function resetMockRecords(adminPassword) {
   return { ok: true };
 }
 
+/**
+ * Submit = simpan jawaban terakhir + validasi required + computed fields +
+ * jalankan rule AKTIF + status 'submitted'. Detail kontrak return di
+ * SubmitLogic. Validasi gagal → { ok:true, submitted:false, missing } dan
+ * jawaban TETAP tersimpan (draft). Submit ulang me-rerun rule tanpa syarat.
+ */
+function submitRecord(pmlEmail, record) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var jenis = record && record.jenis;
+    var assigned = WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, pmlEmail);
+    var questions = QuestionLogic.selectQuestions(MockData.QUESTIONS, jenis, false);
+    var rules = RuleLogic.selectRules(MockData.RULES, jenis, false);
+    var res = SubmitLogic.applySubmit(
+      readRecords_(), pmlEmail, record, assigned, questions, rules,
+      new Date().toISOString(), 'R-' + Utilities.getUuid()
+    );
+    if (!res.ok) return res;
+    writeRecords_(res.records);
+    return {
+      ok: true, submitted: res.submitted, record_id: res.record_id,
+      updated_at: res.updated_at, missing: res.missing || [],
+      anomalies: res.anomalies || []
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ==== STUB — signature final, implementasi menyusul per fase ====
 
 function notImplemented_() {
   return { ok: false, error: 'NOT_IMPLEMENTED' };
 }
-
-function submitRecord(pmlEmail, record) { return notImplemented_(); }
 
 // == CONFIG: baca ==
 function getQuestions(jenis, includeInactive) {
@@ -93,7 +121,13 @@ function getQuestions(jenis, includeInactive) {
   return { ok: true, questions: QuestionLogic.selectQuestions(MockData.QUESTIONS, jenis, includeInactive === true) };
 }
 
-function getRules(jenis, includeInactive) { return notImplemented_(); }
+// `when` di mock disimpan sebagai OBJEK; di Fase 5 kolom sheet berisi string
+// JSON — evaluator menerima dua-duanya, jadi implementasi Sheets boleh
+// meneruskan string apa adanya.
+function getRules(jenis, includeInactive) {
+  if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
+  return { ok: true, rules: RuleLogic.selectRules(MockData.RULES, jenis, includeInactive === true) };
+}
 
 // == CONFIG: privileged — WAJIB cek adminPassword === ADMIN_PASSWORD di tiap panggilan ==
 function createQuestion(adminPassword, question) { return notImplemented_(); }

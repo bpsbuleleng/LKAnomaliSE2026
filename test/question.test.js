@@ -27,7 +27,14 @@ test('selectQuestions: usaha & keluarga tidak bocor silang', () => {
 test('selectQuestions: roster keluarga ikut dengan roster_group terisi', () => {
   const qs = QuestionLogic.selectQuestions(MockData.QUESTIONS, 'keluarga', false);
   const roster = qs.filter((q) => q.roster_group === 'anggota_keluarga');
-  assert.deepEqual(roster.map((q) => q.question_id), ['b1r6_n', 'b1r8_n', 'b1r11_n', 'b3r20a_n']);
+  assert.deepEqual(roster.map((q) => q.question_id), [
+    'b1r6_n', 'b1r8_n', 'b1r9_n', 'b1r11_n',
+    'b3r18a_n', 'b3r18b_n', 'b3r18c_n',
+    'b3r20a_n', 'b3r20b_n', 'b3r20c_n', 'b3r20d_n', 'b3r20e_n', 'b3r20f_n'
+  ]);
+  // roster kedua: meteran listrik (skip-pattern, lihat MockData)
+  const meteran = qs.filter((q) => q.roster_group === 'meteran_listrik');
+  assert.deepEqual(meteran.map((q) => q.question_id), ['b4r14b_n']);
 });
 
 test('selectQuestions: urutan tidak memutasi array sumber', () => {

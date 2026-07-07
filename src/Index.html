@@ -283,6 +283,14 @@
       el('record-title').textContent = draft.record_id ? 'Edit Record' : 'Record Baru';
       el('record-jenis-chip').textContent = draft.jenis;
       showRecordError('');
+      renderStatusChip();
+      renderInlineAnomalies();
+      clearMissing();
+      setSubmitBusy(false);
+      // Kunci submit sampai pertanyaan selesai dirender — kalau tidak,
+      // penanda field kurang bisa menempel ke DOM yang belum/segera diganti.
+      el('record-submit').disabled = true;
+      el('anomaly-dialog').classList.add('hidden');
       clearPplDisplay();
       sel.kecamatan.reset(); sel.desa.reset(); sel.sls.reset(); sel.subsls.reset();
       el('questions-container').innerHTML = '';
@@ -297,6 +305,7 @@
         el('no-assignment').classList.toggle('hidden', hasAssignment);
         el('wilayah-section').classList.toggle('hidden', !hasAssignment);
         el('record-save').disabled = !hasAssignment;
+        el('record-submit').disabled = !hasAssignment;
         if (hasAssignment) {
           sel.kecamatan.setOptions(CascadeLogic.kecamatanOptions(rows));
           var w = (wilayahSnapshot && wilayahSnapshot.idsubsls)
@@ -617,6 +626,160 @@
       el('exit-dialog').classList.add('hidden');
       var d = Q.draft;
       DraftStore.remove(d.localId).then(function () { enterDashboard(); });
+    });
+
+    // ==== SUBMIT & DAFTAR ANOMALI ====
+    // Dua hal BERBEDA: validasi isian (required, blocking, tunjuk field) vs
+    // rule anomali (jalan SETELAH submit, laporan, tidak memblokir).
+
+    function renderStatusChip() {
+      var chip = el('record-status-chip');
+      var st = (Q.draft && Q.draft.status) || 'draft';
+      chip.textContent = st;
+      chip.className = 'text-xs font-semibold px-2 py-1 rounded-full ' +
+        (st === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700');
+    }
+
+    var SEVERITY_CLS = {
+      error: 'bg-red-100 text-red-700',
+      warning: 'bg-amber-100 text-amber-800'
+    };
+
+    function renderAnomalyList(listEl, anomalies) {
+      listEl.innerHTML = '';
+      (anomalies || []).forEach(function (a) {
+        var li = document.createElement('li');
+        li.setAttribute('data-testid', 'anomaly-item');
+        li.className = 'flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3';
+        var badge = document.createElement('span');
+        badge.className = 'shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ' +
+          (SEVERITY_CLS[a.severity] || SEVERITY_CLS.warning);
+        badge.textContent = a.rule_id + ' · ' + a.severity;
+        var msg = document.createElement('p');
+        msg.className = 'text-sm';
+        msg.textContent = a.message;
+        li.appendChild(badge);
+        li.appendChild(msg);
+        listEl.appendChild(li);
+      });
+    }
+
+    // Panel "hasil pemeriksaan terakhir" — tampil saat membuka record submitted.
+    function renderInlineAnomalies() {
+      var d = Q.draft;
+      var show = !!(d && d.status === 'submitted');
+      el('anomaly-section').classList.toggle('hidden', !show);
+      if (!show) return;
+      var n = (d.anomalies || []).length;
+      el('anomaly-section-title').textContent = n
+        ? 'Hasil pemeriksaan terakhir: ' + n + ' anomali'
+        : 'Hasil pemeriksaan terakhir: tidak ada anomali ✓';
+      renderAnomalyList(el('anomaly-list-inline'), d.anomalies);
+    }
+
+    function openAnomalyDialog(anomalies) {
+      el('anomaly-dialog-count').textContent = anomalies.length
+        ? anomalies.length + ' anomali terdeteksi. Anomali bersifat laporan — record sudah tersubmit, bisa diperbaiki lalu disubmit ulang.'
+        : 'Tidak ada anomali terdeteksi. Record tersubmit. ✓';
+      renderAnomalyList(el('anomaly-dialog-list'), anomalies);
+      el('anomaly-dialog').classList.remove('hidden');
+    }
+
+    el('anomaly-done').addEventListener('click', function () {
+      el('anomaly-dialog').classList.add('hidden');
+      enterDashboard();
+    });
+    el('anomaly-close').addEventListener('click', function () {
+      el('anomaly-dialog').classList.add('hidden');
+    });
+
+    var MISSING_INPUT_CLS = ['ring-2', 'ring-red-400', 'border-red-400'];
+
+    function clearMissing() {
+      el('missing-summary').classList.add('hidden');
+      el('missing-list').innerHTML = '';
+      document.querySelectorAll('#view-record [aria-invalid="true"]').forEach(function (n) {
+        n.removeAttribute('aria-invalid');
+        MISSING_INPUT_CLS.forEach(function (c) { n.classList.remove(c); });
+      });
+    }
+
+    // Tunjuk field kurang: ringkasan berlabel + tandai inputnya + scroll ke sana.
+    function renderMissing(missing) {
+      var list = el('missing-list');
+      list.innerHTML = '';
+      var firstInput = null;
+      missing.forEach(function (m) {
+        var li = document.createElement('li');
+        li.setAttribute('data-testid', 'missing-item');
+        li.textContent = m.label + (m.row_index != null && m.roster_group
+          ? ' — ' + rosterTitle(m.roster_group) + ' #' + (m.row_index + 1) : '');
+        list.appendChild(li);
+        if (m.question_id === '__wilayah__') return; // tak ada satu input tunggal
+        var testid = 'q-' + m.question_id + (m.row_index != null ? '-' + m.row_index : '');
+        var input = document.querySelector('#view-record [data-testid="' + testid + '"]');
+        if (input) {
+          input.setAttribute('aria-invalid', 'true');
+          MISSING_INPUT_CLS.forEach(function (c) { input.classList.add(c); });
+          if (!firstInput) firstInput = input;
+        }
+      });
+      el('missing-summary').classList.remove('hidden');
+      var target = firstInput || el('missing-summary');
+      if (target.scrollIntoView) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+
+    function setSubmitBusy(busy) {
+      el('record-submit').disabled = busy;
+      el('record-submit').textContent = busy ? 'Memeriksa…' : 'Submit & Periksa Anomali';
+    }
+
+    el('record-submit').addEventListener('click', function doSubmit() {
+      var d = Q.draft;
+      if (!d) return;
+      if (Q.inFlight) { setTimeout(doSubmit, 800); return; } // tunggu sync jalan selesai
+      clearTimeout(Q.debounceTimer);
+      showRecordError('');
+      clearMissing();
+      setSubmitBusy(true);
+      Q.inFlight = true; // blokir auto-sync selama submit
+      var sentRev = d.rev;
+      DraftStore.put(d)
+        .then(function () {
+          // Submit membawa jawaban lokal terakhir — record yang belum pernah
+          // sync (dibuat offline) pun bisa langsung disubmit saat online.
+          return gsRun('submitRecord', App.state.pml.email, {
+            record_id: d.record_id, jenis: d.jenis, idsubsls: d.idsubsls, answers: d.answers
+          });
+        })
+        .then(function (res) {
+          Q.inFlight = false;
+          setSubmitBusy(false);
+          if (!(res && res.ok)) {
+            showRecordError(SAVE_ERROR_MESSAGES[res && res.error] || 'Gagal submit ke server.');
+            return;
+          }
+          // Jawaban tersimpan di server walau validasi menolak submit.
+          DraftLogic.markSynced(d, sentRev, res.record_id, res.updated_at);
+          if (res.submitted === false) {
+            DraftStore.put(d);
+            refreshSyncIndicator();
+            renderMissing(res.missing || []);
+            return;
+          }
+          d.status = 'submitted';
+          d.anomalies = res.anomalies || [];
+          DraftStore.put(d);
+          refreshSyncIndicator();
+          renderStatusChip();
+          renderInlineAnomalies();
+          openAnomalyDialog(d.anomalies);
+        })
+        .catch(function () {
+          Q.inFlight = false;
+          setSubmitBusy(false);
+          showRecordError('Submit butuh koneksi ke server. Perubahan aman tersimpan lokal dan bisa disubmit lagi nanti.');
+        });
     });
 
     initCascades();

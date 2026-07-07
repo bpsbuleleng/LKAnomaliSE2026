@@ -14,11 +14,14 @@ var DraftLogic = (function () {
     return {
       localId: localId, record_id: null, pml_email: pmlEmail, jenis: jenis,
       idsubsls: '', answers: { roster: {} },
+      status: 'draft', anomalies: [],
       rev: 0, syncedRev: 0, updatedLocal: nowIso
     };
   }
 
   // Bentuk draft dari record server (dianggap sudah sinkron: rev == syncedRev).
+  // status & anomalies ikut dibawa supaya kuesioner bisa menampilkan hasil
+  // pemeriksaan terakhir record yang sudah submitted.
   function fromServerRecord(record) {
     var answers = record.answers || {};
     if (!answers.roster) answers.roster = {};
@@ -26,7 +29,9 @@ var DraftLogic = (function () {
       localId: record.record_id, record_id: record.record_id,
       pml_email: record.pml_email, jenis: record.jenis,
       idsubsls: (record.wilayah && record.wilayah.idsubsls) || '',
-      answers: answers, rev: 0, syncedRev: 0, updatedLocal: record.updated_at
+      answers: answers,
+      status: record.status || 'draft', anomalies: record.anomalies || [],
+      rev: 0, syncedRev: 0, updatedLocal: record.updated_at
     };
   }
 
