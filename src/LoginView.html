@@ -1,0 +1,25 @@
+<section id="view-login" class="view max-w-md mx-auto px-4 py-10">
+  <h1 class="text-2xl font-bold mb-1">LK Anomali SE2026</h1>
+  <p class="text-slate-500 mb-6">Lembar kerja pengecekan anomali &mdash; masuk sebagai PML</p>
+
+  <form id="login-form" class="space-y-4 bg-white rounded-2xl shadow p-5" novalidate>
+    <div>
+      <label for="login-email" class="block text-sm font-medium mb-1">Email</label>
+      <input id="login-email" data-testid="login-email" type="email" autocomplete="email"
+        placeholder="nama@gmail.com"
+        class="w-full h-12 px-4 text-base rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500">
+    </div>
+    <div>
+      <label for="login-password" class="block text-sm font-medium mb-1">Password</label>
+      <input id="login-password" data-testid="login-password" type="password" autocomplete="current-password"
+        class="w-full h-12 px-4 text-base rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500">
+    </div>
+
+    <p id="login-error" data-testid="login-error" class="hidden text-sm text-red-600"></p>
+
+    <button id="login-submit" data-testid="login-submit" type="submit"
+      class="w-full h-12 rounded-xl bg-sky-600 text-white text-base font-semibold active:bg-sky-700 disabled:opacity-50">
+      Masuk
+    </button>
+  </form>
+</section>

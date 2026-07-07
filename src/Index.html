@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+
+  <?!= include('LoginView'); ?>
+  <?!= include('DashboardView'); ?>
+
+  <script>
+    // State aplikasi — identitas PML hanya hidup di memory selama sesi halaman,
+    // sengaja TIDAK ditaruh di localStorage.
+    var App = { state: { pml: null } };
+
+    var LOGIN_ERROR_MESSAGES = {
+      EMAIL_NOT_FOUND: 'Email tidak terdaftar sebagai petugas.',
+      NOT_PML: 'Email ini terdaftar, tapi bukan akun PML.',
+      WRONG_PASSWORD: 'Password salah.'
+    };
+
+    function showView(name) {
+      document.querySelectorAll('.view').forEach(function (el) { el.classList.add('hidden'); });
+      document.getElementById('view-' + name).classList.remove('hidden');
+    }
+
+    function setLoginError(msg) {
+      var el = document.getElementById('login-error');
+      el.textContent = msg;
+      el.classList.toggle('hidden', !msg);
+    }
+
+    function setLoginBusy(busy) {
+      var btn = document.getElementById('login-submit');
+      btn.disabled = busy;
+      btn.textContent = busy ? 'Memeriksa…' : 'Masuk';
+    }
+
+    document.getElementById('login-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      setLoginError('');
+      setLoginBusy(true);
+
+      var email = document.getElementById('login-email').value;
+      var password = document.getElementById('login-password').value;
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          setLoginBusy(false);
+          if (res && res.ok) {
+            App.state.pml = res.pml;
+            document.getElementById('login-password').value = '';
+            document.getElementById('dashboard-greeting').textContent =
+              'Halo, ' + res.pml.nama;
+            showView('dashboard');
+          } else {
+            setLoginError(LOGIN_ERROR_MESSAGES[res && res.error] || 'Login gagal. Coba lagi.');
+          }
+        })
+        .withFailureHandler(function (err) {
+          setLoginBusy(false);
+          setLoginError('Gagal terhubung ke server. Coba lagi. (' +
+            ((err && err.message) || err) + ')');
+        })
+        .login(email, password);
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', function () {
+      App.state.pml = null;
+      showView('login');
+    });
+  </script>
+</body>
+</html>

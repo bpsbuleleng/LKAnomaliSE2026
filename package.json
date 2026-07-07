@@ -1,0 +1,14 @@
+{
+  "name": "lk-anomali-se2026",
+  "private": true,
+  "description": "Lembar kerja pengecekan anomali isian SE2026 (Google Apps Script + clasp)",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:e2e": "playwright test",
+    "push": "clasp push -f",
+    "deploy": "clasp deploy -i AKfycbwJ4spiFeSAymytUTDFl4bfrMcpBBD3NsE5d0k2GCM1_U50slKfyHaC3HhMRipnw7PU"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}
