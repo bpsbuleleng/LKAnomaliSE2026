@@ -22,6 +22,7 @@ var ConfigLogic = (function () {
   var TYPES = ['text', 'number', 'currency', 'select', 'date', 'textarea', 'kbli'];
   var SEVERITIES = ['error', 'warning'];
   var ALIAS_RE = /^[a-z0-9_]+$/i;
+  var RULE_ID_RE = /^[a-z0-9_-]+$/i;
 
   function s(v) { return String(v == null ? '' : v).trim(); }
 
@@ -177,6 +178,9 @@ var ConfigLogic = (function () {
     return { ok: true, when: parsed };
   }
 
+  // rule_id unik GLOBAL. Kosong/tidak dipasok → server generate (nextRuleId);
+  // dipasok → dipakai apa adanya (admin boleh menamai sendiri, mis. "K8"
+  // atau "K_status_cerai") supaya lebih gampang dikelola orang lain.
   function applyCreateRule(rules, jenis, input) {
     if (!jenisValid(jenis)) return { ok: false, error: 'INVALID_JENIS' };
     input = input || {};
@@ -185,8 +189,18 @@ var ConfigLogic = (function () {
     var w = normalizeWhen(input.when);
     if (!w.ok) return { ok: false, error: 'INVALID_WHEN', detail: w.error };
 
+    var ruleId = s(input.rule_id);
+    if (ruleId) {
+      if (!RULE_ID_RE.test(ruleId)) return { ok: false, error: 'INVALID_RULE_ID' };
+      if (findIndex(rules, function (r) { return r.rule_id === ruleId; }) !== -1) {
+        return { ok: false, error: 'DUPLICATE_RULE_ID' };
+      }
+    } else {
+      ruleId = nextRuleId(rules, jenis);
+    }
+
     var rule = {
-      rule_id: nextRuleId(rules, jenis), jenis: jenis,
+      rule_id: ruleId, jenis: jenis,
       severity: input.severity, message: s(input.message),
       when: w.when, active: true
     };
@@ -194,12 +208,23 @@ var ConfigLogic = (function () {
   }
 
   // rule_id unik GLOBAL (prefix U/K per jenis menjamin) — tidak perlu jenis.
+  // Rename (patch.rule_id) TIDAK memutus anomali yang sudah tersimpan di
+  // record lama — 'anomalies' disimpan sebagai snapshot {rule_id, severity,
+  // message} saat submit, bukan live-join ke tab Rules.
   function applyUpdateRule(rules, ruleId, patch) {
     var idx = findIndex(rules, function (r) { return r.rule_id === ruleId; });
     if (idx === -1) return { ok: false, error: 'NOT_FOUND' };
     patch = patch || {};
     var r = shallow(rules[idx]);
 
+    if ('rule_id' in patch) {
+      var newId = s(patch.rule_id);
+      if (!newId || !RULE_ID_RE.test(newId)) return { ok: false, error: 'INVALID_RULE_ID' };
+      if (newId !== ruleId && findIndex(rules, function (x) { return x.rule_id === newId; }) !== -1) {
+        return { ok: false, error: 'DUPLICATE_RULE_ID' };
+      }
+      r.rule_id = newId;
+    }
     if ('severity' in patch) {
       if (SEVERITIES.indexOf(patch.severity) === -1) return { ok: false, error: 'INVALID_SEVERITY' };
       r.severity = patch.severity;

@@ -38,7 +38,7 @@ async function gsCall(f, fn, args) {
 
 function usahaAnswers(nama) {
   // Semua field required usaha terisi → submit lolos validasi.
-  return { nama_usaha: nama, r11a: 2, r13b1: 3, r25: 2019, r27c: 50000000 };
+  return { nama_usaha: nama, r11a: 2, r13b1: 3, r13g: '01111', r25: 2019, r27c: 50000000 };
 }
 
 test('ACCEPTANCE Fase 5: dua submit nyaris bersamaan → record_id unik, tepat 2 baris di tab Records', async ({ browser }) => {

@@ -470,7 +470,14 @@
       refreshSyncIndicator();
       showView('record');
 
-      Promise.all([ensureWilayah(), ensureQuestions(draft.jenis), ensureKbli()]).then(function (vals) {
+      // KBLI TIDAK BOLEH memblokir keseluruhan kuesioner (termasuk keluarga,
+      // yang tidak pernah butuh field ini) — kalau gagal/belum ter-cache
+      // (mis. baru offline sebelum prefetch dashboard selesai), field r13g
+      // cukup tampil tanpa opsi dulu, bukan menggagalkan seluruh render.
+      Promise.all([
+        ensureWilayah(), ensureQuestions(draft.jenis),
+        ensureKbli().catch(function () { return App.state.kbliOptions || []; })
+      ]).then(function (vals) {
         var rows = vals[0];
         var questions = vals[1];
         var hasAssignment = rows.length > 0;

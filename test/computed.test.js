@@ -60,6 +60,18 @@ test('r13f: digit pertama kode KBLI 5 digit; kosong/belum diisi → ""', () => {
   assert.equal(usaha({ r13g: '' }).r13f, '');
 });
 
+test('r13h: kategori huruf A-U dari 2 digit pertama (golongan pokok) KBLI', () => {
+  assert.equal(usaha({ r13g: '01111' }).r13h, 'A'); // pertanian
+  assert.equal(usaha({ r13g: '08000' }).r13h, 'B'); // pertambangan
+  assert.equal(usaha({ r13g: '10111' }).r13h, 'C'); // industri pengolahan
+  assert.equal(usaha({ r13g: '33111' }).r13h, 'C'); // batas atas C
+  assert.equal(usaha({ r13g: '47111' }).r13h, 'G'); // perdagangan eceran
+  assert.equal(usaha({ r13g: '68111' }).r13h, 'L'); // real estat (rentang 1 nilai)
+  assert.equal(usaha({ r13g: '99000' }).r13h, 'U'); // badan internasional
+  assert.equal(usaha({}).r13h, '');
+  assert.equal(usaha({ r13g: '5' }).r13h, ''); // kurang dari 2 digit
+});
+
 // ==== r26_total, pangsa_biaya_produksi, rasio_pendapatan_biaya ====
 
 test('r26_total: jumlah 5 komponen biaya; kosong = 0', () => {

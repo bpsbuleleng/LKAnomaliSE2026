@@ -31,7 +31,7 @@
 <!-- Dialog tambah/edit pertanyaan -->
 <div id="aq-dialog" data-testid="aq-dialog"
   class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
-  <div class="dlg-panel bg-white w-full max-w-md rounded-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+  <div class="dlg-panel bg-white w-full max-w-md sm:max-w-lg rounded-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
     <h2 id="aq-dialog-title" class="font-bold text-lg">Tambah Pertanyaan</h2>
     <div>
       <label class="block text-sm font-medium mb-1">Alias (question_id)</label>
@@ -71,9 +71,11 @@
         class="w-full h-12 px-3 text-base rounded-xl border border-slate-300">
     </div>
     <p id="aq-error" data-testid="aq-error" class="hidden text-sm text-red-600"></p>
-    <button id="aq-save" data-testid="aq-save" type="button"
-      class="w-full h-12 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700 disabled:opacity-50">Simpan</button>
-    <button id="aq-cancel" data-testid="aq-cancel" type="button"
-      class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+    <div class="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+      <button id="aq-cancel" data-testid="aq-cancel" type="button"
+        class="h-12 sm:px-6 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+      <button id="aq-save" data-testid="aq-save" type="button"
+        class="h-12 sm:px-6 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700 disabled:opacity-50">Simpan</button>
+    </div>
   </div>
 </div>

@@ -69,6 +69,31 @@ var ComputedFields = (function () {
     return kode ? kode.charAt(0) : '';
   }
 
+  // r13h = Kategori KBLI (huruf A-U), dipetakan dari 2 digit PERTAMA kode
+  // KBLI (Golongan Pokok) r13g, mengikuti struktur baku Klasifikasi Baku
+  // Lapangan Usaha Indonesia (KBLI) 2020 milik BPS. TIDAK ADA sumber data
+  // pemetaan ini di repo (master/kbli.json cuma berisi level "Kelompok" 5
+  // digit) — rentang di bawah dari pengetahuan umum struktur KBLI 2020,
+  // BUKAN dari file referensi proyek. Mohon diverifikasi ke dokumen KBLI
+  // 2020 resmi kalau dipakai untuk keperluan resmi.
+  var KATEGORI_RANGES = [
+    [1, 3, 'A'], [5, 9, 'B'], [10, 33, 'C'], [35, 35, 'D'], [36, 39, 'E'],
+    [41, 43, 'F'], [45, 47, 'G'], [49, 53, 'H'], [55, 56, 'I'], [58, 63, 'J'],
+    [64, 66, 'K'], [68, 68, 'L'], [69, 75, 'M'], [77, 82, 'N'], [84, 84, 'O'],
+    [85, 85, 'P'], [86, 88, 'Q'], [90, 93, 'R'], [94, 96, 'S'], [97, 98, 'T'],
+    [99, 99, 'U']
+  ];
+  function r13h(a) {
+    var kode = String(a.r13g == null ? '' : a.r13g);
+    if (kode.length < 2) return '';
+    var golPokok = Number(kode.slice(0, 2));
+    if (isNaN(golPokok)) return '';
+    for (var i = 0; i < KATEGORI_RANGES.length; i++) {
+      if (golPokok >= KATEGORI_RANGES[i][0] && golPokok <= KATEGORI_RANGES[i][1]) return KATEGORI_RANGES[i][2];
+    }
+    return '';
+  }
+
   function r26Total(a) {
     return num(a.r26a) + num(a.r26b) + num(a.r26c) + num(a.r26d) + num(a.r26e);
   }
@@ -96,6 +121,7 @@ var ComputedFields = (function () {
     ],
     usaha: [
       ['r13f', r13f, 'Kategori 1 digit dari kode KBLI (hitungan)'],
+      ['r13h', r13h, 'Kategori huruf A-U dari kode KBLI (hitungan)'],
       ['r26_total', r26Total, 'Total biaya usaha setahun (hitungan)'],
       ['pangsa_biaya_produksi', pangsaBiayaProduksi, 'Pangsa biaya produksi 0-1 (hitungan)'],
       ['rasio_pendapatan_biaya', rasioPendapatanBiaya, 'Rasio pendapatan/biaya (hitungan)']

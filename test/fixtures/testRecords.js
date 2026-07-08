@@ -41,12 +41,13 @@ function keluargaBase() {
   };
 }
 
-// Usaha bersih: jasa (r13b1=3), total biaya 50jt (pangsa produksi 0,4),
-// pendapatan 55jt → rasio 1,1 (di antara 1 dan 1,25), aset kecil, bukan
-// mitra MBG, pakai internet & menyusun laporan keuangan.
+// Usaha bersih: memproduksi barang (r13b1=1), total biaya 50jt (pangsa
+// produksi 0,4), pendapatan 55jt → rasio 1,1 (di antara 1 dan 1,25), aset
+// kecil, 2 pekerja (r24c1, bukan 1 → U5 aman), pakai internet & menyusun
+// laporan keuangan.
 function usahaBase() {
   return {
-    nama_usaha: 'WARUNG SEGARA', r11a: 2, r13b1: 3, r16a: 1, r11d: 1,
+    nama_usaha: 'WARUNG SEGARA', r11a: 2, r13b1: 1, r16a: 1, r11d: 1,
     r22: 1, r24c1: 2, r25: 2019,
     r26a: 10000000, r26b: 20000000, r26c: 10000000, r26d: 5000000, r26e: 5000000,
     r27c: 55000000, r28c: 8000000, r29c: 0, r29d: 0,
@@ -100,13 +101,13 @@ var TEST_RECORDS = [
 
   // ---- Usaha: isolasi per rule ----
   make('u1-biaya-produksi-dominan', 'usaha', ['U1'], usahaBase, function (a) {
-    a.r13b1 = 2; // perdagangan
+    a.r13b1 = 2; // tidak memproduksi barang di lokasi ini
     a.r26a = 5000000; a.r26b = 35000000; a.r26c = 5000000; a.r26d = 3000000; a.r26e = 2000000;
     // total tetap 50jt, pangsa produksi 0,7 — rasio 55/50 = 1,1 aman dari U2/U4
   }),
   make('u2-usaha-rugi', 'usaha', ['U2'], usahaBase, function (a) {
     a.r27c = 40000000; // < total biaya 50jt
-    a.r22 = 2;         // tanpa pembukuan supaya U4 (rasio 0,8 < 1) tidak ikut
+    a.r22 = 2;         // bukan "Ya, sebagai SPPG" supaya U4 (rasio 0,8 < 1) tidak ikut
   }),
   make('u3-modal-korporasi', 'usaha', ['U3'], usahaBase, function (a) {
     a.r11a = 13; a.r29c = 5000000;
@@ -115,11 +116,11 @@ var TEST_RECORDS = [
     a.r27c = 70000000; // rasio 1,4 ≥ 1,25; > total biaya → U2 aman; ≥ 60jt → U5 aman
   }),
   make('u5-aset-mbg', 'usaha', ['U5'], usahaBase, function (a) {
-    a.r28c = 50000000; a.r24c1 = 1; // aset > 10jt, mitra MBG, pendapatan 55jt < 60jt
+    a.r28c = 50000000; a.r24c1 = 1; // aset > 10jt, 1 pekerja (r24c1="Total pekerja"), pendapatan 55jt < 60jt
   }),
   make('u6-besar-tanpa-internet', 'usaha', ['U6'], usahaBase, function (a) {
     a.r16a = 2; a.r27c = 15000000000;
-    a.r22 = 2; // rasio 300 akan memicu U4 kalau pembukuan dibiarkan 1
+    a.r22 = 2; // rasio 300 akan memicu U4 kalau dibiarkan "Ya, sebagai SPPG" (1)
   }),
   make('u7-besar-tanpa-laporan', 'usaha', ['U7'], usahaBase, function (a) {
     a.r11d = 2; a.r27c = 15000000000;

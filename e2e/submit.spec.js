@@ -122,9 +122,15 @@ test('submit usaha: computed fields server-side memicu multi anomali (U2 + U4)',
 
   await pickWilayah(f);
   await f.getByTestId('q-nama_usaha').fill('WARUNG SEGARA');
-  await f.getByTestId('q-r11a-opt-2').check();   // CV
-  await f.getByTestId('q-r13b1-opt-3').check();  // jasa
-  await f.getByTestId('q-r22-opt-1').check();    // ada pembukuan
+  await f.getByTestId('q-r11a-opt-2').check();   // Yayasan
+  // r13b1 = Ya (memproduksi barang) — sengaja BUKAN "Tidak", supaya U1
+  // (biaya produksi dominan usaha NON-produsen) tidak ikut terpicu; test
+  // ini mengisolasi U2+U4 saja.
+  await f.getByTestId('q-r13b1-opt-1').check();
+  await f.getByTestId('kbli-r13g-trigger').click();
+  await f.getByTestId('kbli-r13g-search').fill('01111');
+  await f.getByTestId('kbli-r13g-list').locator('li[data-kode="01111"]').click();
+  await f.getByTestId('q-r22-opt-1').check();    // terlibat MBG (SPPG)
   await f.getByTestId('q-r25').fill('2019');
   await f.getByTestId('q-r26b').fill('50000000');    // total biaya 50jt
   await f.getByTestId('q-r27c').fill('40000000');    // pendapatan < biaya → U2; rasio 0,8 → U4
@@ -137,7 +143,7 @@ test('submit usaha: computed fields server-side memicu multi anomali (U2 + U4)',
   await expect(dialogItems.filter({ hasText: 'rasio pendapatan' })).toBeVisible();
 });
 
-test('KBLI (r13g): searchable select cari kode/judul, tersimpan sbg kode; r13f dihitung otomatis (digit pertama)', async ({ page }) => {
+test('KBLI (r13g): searchable select cari kode/judul, tersimpan sbg kode; r13f/r13h dihitung otomatis', async ({ page }) => {
   const f = await login(page, KADEK);
   await resetRecords(f);
   await newRecord(f, 'usaha');
@@ -145,7 +151,7 @@ test('KBLI (r13g): searchable select cari kode/judul, tersimpan sbg kode; r13f d
   await pickWilayah(f);
   await f.getByTestId('q-nama_usaha').fill('WARUNG SEGARA');
   await f.getByTestId('q-r11a-opt-2').check();
-  await f.getByTestId('q-r13b1-opt-3').check();
+  await f.getByTestId('q-r13b1-opt-2').check(); // r13b1 kini Ya/Tidak (opsi 3 sudah tidak ada)
   await f.getByTestId('q-r25').fill('2019');
   await f.getByTestId('q-r27c').fill('40000000');
 
@@ -165,4 +171,5 @@ test('KBLI (r13g): searchable select cari kode/judul, tersimpan sbg kode; r13f d
   const rec = await direct(f, 'getRecord', [KADEK, list.records[0].record_id]);
   expect(rec.record.answers.r13g).toBe('01111');
   expect(rec.record.answers.r13f).toBe('0'); // digit pertama, string (bukan number)
+  expect(rec.record.answers.r13h).toBe('A'); // kategori huruf: golongan pokok 01 → Pertanian (A)
 });

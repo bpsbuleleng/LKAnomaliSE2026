@@ -10,22 +10,26 @@
 
   <?!= include('AdminLoginView'); ?>
 
-  <section id="admin-view-main" data-testid="admin-main" class="view hidden max-w-md mx-auto px-4 py-6 space-y-5">
+  <section id="admin-view-main" data-testid="admin-main" class="view hidden max-w-md lg:max-w-6xl mx-auto px-4 py-6 space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-bold">Config SE2026</h1>
       <button id="admin-logout" data-testid="admin-logout" type="button"
         class="h-11 px-3 rounded-lg text-orange-700 font-medium active:bg-orange-50">Keluar</button>
     </div>
 
-    <div class="flex rounded-xl bg-slate-200 p-1" role="tablist">
+    <div class="flex rounded-xl bg-slate-200 p-1 lg:max-w-xs" role="tablist">
       <button id="jenis-tab-usaha" data-testid="jenis-tab-usaha" type="button"
         class="flex-1 h-11 rounded-lg text-sm font-semibold">usaha</button>
       <button id="jenis-tab-keluarga" data-testid="jenis-tab-keluarga" type="button"
         class="flex-1 h-11 rounded-lg text-sm font-semibold">keluarga</button>
     </div>
 
-    <?!= include('AdminQuestionsView'); ?>
-    <?!= include('AdminRulesView'); ?>
+    <!-- Berdampingan di layar lebar (lihat Kelola Pertanyaan & Rule sekaligus
+         memudahkan mikir aturan baru); bertumpuk di HP. -->
+    <div class="space-y-5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
+      <?!= include('AdminQuestionsView'); ?>
+      <?!= include('AdminRulesView'); ?>
+    </div>
   </section>
 
   <?!= include('UiFx'); ?>
@@ -65,6 +69,8 @@
       INVALID_SEVERITY: 'Severity tidak valid.',
       INVALID_MESSAGE: 'Pesan anomali wajib diisi.',
       INVALID_WHEN: 'Kondisi when tidak valid.',
+      INVALID_RULE_ID: 'Rule ID tidak valid — pakai huruf/angka/underscore/strip, tidak boleh kosong.',
+      DUPLICATE_RULE_ID: 'Rule ID sudah dipakai rule lain.',
       NOT_FOUND: 'Item tidak ditemukan — muat ulang halaman.'
     };
 
@@ -331,84 +337,97 @@
 
     function moveReorder(index, delta) {
       Adm.reorderIds = AdminLogic.moveItem(Adm.reorderIds, index, delta);
-      renderQuestions();
+      flipRenderReorder();
     }
 
     // -- drag pointer-events (jalan di sentuh & mouse) --
-    var drag = null; // { el, pid, grabY, floatY }
+    //
+    // Prinsip (memperbaiki freeze lama): selama diseret, HANYA baris yang
+    // digenggam yang berpindah — murni translateY aritmetika dari nilai yang
+    // di-cache sekali di awal drag (grabY, startDocTop), TANPA memanggil
+    // getBoundingClientRect atau memindah node lain tiap pointermove. Baris
+    // lain diam total, cuma ditandai garis (box-shadow, tidak mengubah
+    // layout) di titik tempat akan disisipkan. Urutan Adm.reorderIds & DOM
+    // baru benar-benar disusun ulang SAAT DROP (endDrag) — sesuai keinginan:
+    // "atur posisi lainnya setelah drop", bukan digeser langsung tiap frame.
+    // Pointermove mentah bisa berfrekuensi sangat tinggi; kerja berat
+    // (autoScroll + hitung target) dijatah maksimal 1×/frame lewat rAF.
+    var drag = null;
 
     function makeSortableRow(row, handle) {
       handle.addEventListener('pointerdown', function (e) {
         if (!Adm.reordering || drag) return;
         e.preventDefault();
         try { row.setPointerCapture(e.pointerId); } catch (_) {}
-        var rect = row.getBoundingClientRect();
-        drag = { el: row, pid: e.pointerId, grabY: e.clientY - rect.top, floatY: 0 };
-        row.classList.add('dragging');
+        startDrag(row, e);
       });
       row.addEventListener('pointermove', function (e) {
         if (!drag || drag.el !== row || e.pointerId !== drag.pid) return;
         e.preventDefault();
-        autoScroll(e.clientY);
-        positionFloat(e.clientY);
-        reorderDom(e.clientY);
+        drag.pendingClientY = e.clientY;
+        if (!drag.rafId) drag.rafId = requestAnimationFrame(runDragFrame);
       });
       var end = function () {
         if (!drag || drag.el !== row) return;
         try { row.releasePointerCapture(drag.pid); } catch (_) {}
-        row.classList.remove('dragging');
-        row.style.transform = '';
-        drag = null;
-        Adm.reorderIds = readOrderFromDom();
-        renumberReorder();
+        endDrag();
       };
       row.addEventListener('pointerup', end);
       row.addEventListener('pointercancel', end);
     }
 
-    // Elemen mengambang mengikuti jari: hitung ulang tiap frame relatif posisi
-    // natural (rect.top − transform sekarang) supaya tetap pas walau DOM/scroll
-    // bergeser saat disisipkan ulang.
-    function positionFloat(clientY) {
-      var rect = drag.el.getBoundingClientRect();
-      var naturalTop = rect.top - drag.floatY;
-      drag.floatY = (clientY - drag.grabY) - naturalTop;
-      drag.el.style.transform = 'translateY(' + drag.floatY + 'px)';
-    }
-
-    // Sisipkan elemen yang diseret sebelum baris pertama yang titik-tengahnya
-    // di bawah jari (pola standar reorder).
-    function reorderDom(clientY) {
+    // Cache SEKALI di awal drag: posisi (relatif dokumen, tahan gulung layar)
+    // semua baris LAIN — baris ini tidak pernah dipindah selama drag jadi
+    // cache-nya tetap valid sepanjang gesture, tak perlu query ulang.
+    function startDrag(row, e) {
       var list = el('aq-list');
-      var rows = Array.prototype.slice.call(list.querySelectorAll('.reorder-row'))
-        .filter(function (r) { return r !== drag.el; });
-      var after = null;
-      for (var i = 0; i < rows.length; i++) {
-        var r = rows[i].getBoundingClientRect();
-        if (clientY < r.top + r.height / 2) { after = rows[i]; break; }
-      }
-      if (after) {
-        if (drag.el.nextSibling !== after) list.insertBefore(drag.el, after);
-      } else if (list.lastChild !== drag.el) {
-        list.appendChild(drag.el);
-      }
-    }
-
-    function readOrderFromDom() {
-      return Array.prototype.slice.call(el('aq-list').querySelectorAll('.reorder-row'))
-        .map(function (r) { return r.getAttribute('data-qid'); });
-    }
-
-    // Perbarui nomor urut & disabled ↑/↓ tanpa menggambar ulang total.
-    function renumberReorder() {
-      var rows = el('aq-list').querySelectorAll('.reorder-row');
-      Array.prototype.forEach.call(rows, function (row, i) {
-        var num = row.querySelector('.reorder-num');
-        if (num) num.textContent = i + 1;
-        var btns = row.querySelectorAll('button');
-        if (btns[0]) btns[0].disabled = i === 0;
-        if (btns[1]) btns[1].disabled = i === rows.length - 1;
+      var rect = row.getBoundingClientRect();
+      var scrollY0 = window.scrollY;
+      var others = [], othersRowEls = [];
+      Array.prototype.forEach.call(list.querySelectorAll('.reorder-row'), function (r) {
+        if (r === row) return;
+        var rr = r.getBoundingClientRect();
+        others.push({ id: r.getAttribute('data-qid'), top: rr.top + scrollY0, height: rr.height });
+        othersRowEls.push(r);
       });
+      row.style.transition = 'none'; // ikuti jari instan, jangan animasi
+      drag = {
+        el: row, pid: e.pointerId, qid: row.getAttribute('data-qid'),
+        grabY: e.clientY - rect.top,
+        startDocTop: rect.top + scrollY0,
+        othersIds: others.map(function (o) { return o.id; }),
+        others: others, othersRowEls: othersRowEls,
+        lastTargetPosition: -1, rafId: null, pendingClientY: null
+      };
+      row.classList.add('dragging');
+    }
+
+    function runDragFrame() {
+      if (!drag) return;
+      drag.rafId = null;
+      var clientY = drag.pendingClientY;
+      if (clientY == null) return;
+      autoScroll(clientY);
+      var pointerDocY = clientY + window.scrollY;
+      drag.el.style.transform = 'translateY(' + (pointerDocY - drag.grabY - drag.startDocTop) + 'px)';
+      updateDropTarget(pointerDocY);
+    }
+
+    // Tandai titik sisip lewat highlight (box-shadow) tanpa memindah/mendorong
+    // baris lain — hanya berubah kalau posisi target benar-benar bergeser.
+    function updateDropTarget(pointerDocY) {
+      var pos = drag.others.length;
+      for (var i = 0; i < drag.others.length; i++) {
+        if (pointerDocY < drag.others[i].top + drag.others[i].height / 2) { pos = i; break; }
+      }
+      if (pos === drag.lastTargetPosition) return;
+      drag.lastTargetPosition = pos;
+      drag.othersRowEls.forEach(function (r) { r.classList.remove('drop-before', 'drop-after'); });
+      if (pos < drag.othersRowEls.length) {
+        drag.othersRowEls[pos].classList.add('drop-before');
+      } else if (drag.othersRowEls.length) {
+        drag.othersRowEls[drag.othersRowEls.length - 1].classList.add('drop-after');
+      }
     }
 
     // Gulung halaman saat jari mendekati tepi atas/bawah (daftar bisa panjang).
@@ -416,6 +435,48 @@
       var margin = 80;
       if (clientY < margin) window.scrollBy(0, -14);
       else if (clientY > window.innerHeight - margin) window.scrollBy(0, 14);
+    }
+
+    // Baru di sinilah Adm.reorderIds & DOM disusun ulang beneran (drop) —
+    // lalu diberi animasi FLIP sekali supaya baris "meluncur" mulus ke posisi
+    // akhir alih-alih meloncat, tanpa beban per-frame apa pun.
+    function endDrag() {
+      if (drag.rafId) cancelAnimationFrame(drag.rafId);
+      var pos = drag.lastTargetPosition < 0 ? drag.othersIds.length : drag.lastTargetPosition;
+      Adm.reorderIds = drag.othersIds.slice(0, pos).concat([drag.qid], drag.othersIds.slice(pos));
+      var list = el('aq-list');
+      Array.prototype.forEach.call(list.querySelectorAll('.reorder-row'), function (r) {
+        r.classList.remove('drop-before', 'drop-after', 'dragging');
+        r.style.transform = '';
+        r.style.transition = '';
+      });
+      drag = null;
+      flipRenderReorder();
+    }
+
+    // FLIP: capture posisi lama → render ulang (urutan baru) → animasikan
+    // selisihnya jadi 0. Dipanggil sekali per aksi (drop / tombol ↑↓), bukan
+    // per-frame, jadi aman dari sisi performa.
+    function flipRenderReorder() {
+      var list = el('aq-list');
+      var firstRects = {};
+      Array.prototype.forEach.call(list.querySelectorAll('.reorder-row'), function (r) {
+        firstRects[r.getAttribute('data-qid')] = r.getBoundingClientRect();
+      });
+      renderQuestionsReorder();
+      Array.prototype.forEach.call(list.querySelectorAll('.reorder-row'), function (r) {
+        var first = firstRects[r.getAttribute('data-qid')];
+        if (!first) return;
+        var dy = first.top - r.getBoundingClientRect().top;
+        if (!dy) return;
+        r.style.transition = 'none';
+        r.style.transform = 'translateY(' + dy + 'px)';
+        requestAnimationFrame(function () {
+          r.style.transition = 'transform 200ms ease';
+          r.style.transform = '';
+          setTimeout(function () { r.style.transition = ''; }, 220);
+        });
+      });
     }
 
     function afterMutation(res) {
@@ -625,38 +686,44 @@
         head.appendChild(rm);
         row.appendChild(head);
 
+        // Controls dalam satu baris flex-wrap: sejajar di layar lebar (lebih
+        // sedikit scroll, lebih gampang membandingkan kondisi), bertumpuk di HP.
+        var controls = document.createElement('div');
+        controls.className = 'flex flex-wrap gap-2';
+        row.appendChild(controls);
+
         var fieldSel = document.createElement('select');
-        fieldSel.className = 'ar-cond-field w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+        fieldSel.className = 'ar-cond-field flex-1 min-w-[9.5rem] h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
         fieldSel.setAttribute('data-testid', 'ar-cond-field-' + idx);
         fillFieldSelect(fieldSel, cond.field);
         fieldSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
-        row.appendChild(fieldSel);
+        controls.appendChild(fieldSel);
 
         var opSel = document.createElement('select');
-        opSel.className = 'ar-cond-op w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+        opSel.className = 'ar-cond-op flex-1 min-w-[9.5rem] h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
         opSel.setAttribute('data-testid', 'ar-cond-op-' + idx);
         RULE_OPS.forEach(function (o) { opSel.appendChild(new Option(o[1], o[0])); });
         opSel.value = cond.op;
         opSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
-        row.appendChild(opSel);
+        controls.appendChild(opSel);
 
         // Pilih pembanding (Nilai / Field lain) — hanya untuk operator banding.
         if (canCompareField) {
           var cmpSel = document.createElement('select');
-          cmpSel.className = 'ar-cond-compare w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+          cmpSel.className = 'ar-cond-compare flex-1 min-w-[9.5rem] h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
           cmpSel.setAttribute('data-testid', 'ar-cond-compare-' + idx);
           cmpSel.appendChild(new Option('Bandingkan dengan nilai', 'value'));
           cmpSel.appendChild(new Option('Bandingkan dengan field lain', 'field'));
           cmpSel.value = cond.compare === 'field' ? 'field' : 'value';
           cmpSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
-          row.appendChild(cmpSel);
+          controls.appendChild(cmpSel);
         }
 
         var slot = document.createElement('div');
-        slot.className = 'ar-cond-value-slot';
+        slot.className = 'ar-cond-value-slot flex-1 min-w-[9.5rem]';
         var ctrl = condValueControl(cond, idx);
         if (ctrl) slot.appendChild(ctrl);
-        row.appendChild(slot);
+        controls.appendChild(slot);
 
         list.appendChild(row);
       });
@@ -704,7 +771,7 @@
     function openRuleDialog(r) {
       Adm.editingR = r ? r.rule_id : null;
       el('ar-dialog-title').textContent = r ? 'Edit Rule' : 'Tambah Rule';
-      el('ar-rule-id').textContent = r ? r.rule_id : '(id dibuat otomatis)';
+      el('ar-rule-id').value = r ? r.rule_id : '';
       el('ar-severity').value = r ? r.severity : 'warning';
       el('ar-message').value = r ? r.message : '';
       el('ar-error').classList.add('hidden');
@@ -753,7 +820,10 @@
       el('ar-error').classList.add('hidden');
       var w = currentWhen();
       if (!w.ok) { showErr(w.error); return; }
-      var payload = { severity: el('ar-severity').value, message: el('ar-message').value, when: w.when };
+      var payload = {
+        rule_id: el('ar-rule-id').value.trim(),
+        severity: el('ar-severity').value, message: el('ar-message').value, when: w.when
+      };
       var call = Adm.editingR
         ? gsRun('updateRule', Adm.pw, Adm.editingR, payload)
         : gsRun('createRule', Adm.pw, Adm.jenis, payload);

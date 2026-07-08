@@ -15,9 +15,14 @@
 <!-- Dialog tambah/edit rule -->
 <div id="ar-dialog" data-testid="ar-dialog"
   class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
-  <div class="dlg-panel bg-white w-full max-w-md rounded-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+  <div class="dlg-panel bg-white w-full max-w-md sm:max-w-xl lg:max-w-2xl rounded-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
     <h2 id="ar-dialog-title" class="font-bold text-lg">Tambah Rule</h2>
     <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-sm font-medium mb-1">Rule ID</label>
+        <input id="ar-rule-id" data-testid="ar-rule-id" placeholder="otomatis"
+          class="w-full h-12 px-3 text-base rounded-xl border border-slate-300 font-mono">
+      </div>
       <div>
         <label class="block text-sm font-medium mb-1">Severity</label>
         <select id="ar-severity" data-testid="ar-severity"
@@ -26,10 +31,12 @@
           <option value="error">error</option>
         </select>
       </div>
-      <div class="flex items-end pb-1">
-        <span id="ar-rule-id" class="text-sm text-slate-400 font-mono"></span>
-      </div>
     </div>
+    <p class="text-xs text-slate-400 -mt-1">
+      Boleh diubah kapan saja (huruf/angka/underscore/strip), mis. <span class="font-mono">K_status_cerai</span> —
+      kosongkan saat menambah rule baru untuk id otomatis. Mengubah ID tidak memengaruhi anomali yang sudah
+      tersimpan di record lama.
+    </p>
     <div>
       <label class="block text-sm font-medium mb-1">Pesan anomali (message)</label>
       <input id="ar-message" data-testid="ar-message"
@@ -92,9 +99,11 @@
     </div>
 
     <p id="ar-error" data-testid="ar-error" class="hidden text-sm text-red-600"></p>
-    <button id="ar-save" data-testid="ar-save" type="button"
-      class="w-full h-12 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700 disabled:opacity-50">Simpan</button>
-    <button id="ar-cancel" data-testid="ar-cancel" type="button"
-      class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+    <div class="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+      <button id="ar-cancel" data-testid="ar-cancel" type="button"
+        class="h-12 sm:px-6 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+      <button id="ar-save" data-testid="ar-save" type="button"
+        class="h-12 sm:px-6 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700 disabled:opacity-50">Simpan</button>
+    </div>
   </div>
 </div>

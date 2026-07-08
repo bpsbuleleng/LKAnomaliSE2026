@@ -181,7 +181,38 @@ test('createRule: validasi severity/message/jenis', () => {
   assert.equal(ConfigLogic.applyCreateRule(RULES, 'apalah', { severity: 'error', message: 'x', when }).error, 'INVALID_JENIS');
 });
 
+test('createRule: rule_id kustom dipakai apa adanya; format invalid/duplikat ditolak', () => {
+  const ok = ConfigLogic.applyCreateRule(RULES, 'keluarga', {
+    rule_id: 'K_status_cerai', severity: 'warning', message: 'x', when: { field: 'b4r5', op: '>', value: 1 }
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.rule.rule_id, 'K_status_cerai');
+
+  assert.equal(ConfigLogic.applyCreateRule(RULES, 'keluarga', {
+    rule_id: 'K1', severity: 'warning', message: 'x', when: { field: 'b4r5', op: '>', value: 1 }
+  }).error, 'DUPLICATE_RULE_ID');
+  assert.equal(ConfigLogic.applyCreateRule(RULES, 'keluarga', {
+    rule_id: 'ada spasi', severity: 'warning', message: 'x', when: { field: 'b4r5', op: '>', value: 1 }
+  }).error, 'INVALID_RULE_ID');
+});
+
 // ==== updateRule & setRuleActive ====
+
+test('updateRule: rename rule_id — id baru dipakai, id lama lenyap; format invalid/duplikat/kosong ditolak', () => {
+  const renamed = ConfigLogic.applyUpdateRule(RULES, 'K7', { rule_id: 'K_jumlah_anggota_ekstrem' });
+  assert.equal(renamed.ok, true);
+  assert.equal(renamed.rule.rule_id, 'K_jumlah_anggota_ekstrem');
+  assert.equal(renamed.rules.some((r) => r.rule_id === 'K7'), false);
+  assert.equal(RULES.find((r) => r.rule_id === 'K7').rule_id, 'K7'); // sumber utuh
+
+  assert.equal(ConfigLogic.applyUpdateRule(RULES, 'K7', { rule_id: 'K1' }).error, 'DUPLICATE_RULE_ID');
+  assert.equal(ConfigLogic.applyUpdateRule(RULES, 'K7', { rule_id: '' }).error, 'INVALID_RULE_ID');
+  assert.equal(ConfigLogic.applyUpdateRule(RULES, 'K7', { rule_id: 'ada spasi' }).error, 'INVALID_RULE_ID');
+  // rename ke id sendiri (tanpa perubahan) tetap sah, bukan "duplikat"
+  assert.equal(ConfigLogic.applyUpdateRule(RULES, 'K7', { rule_id: 'K7' }).ok, true);
+});
+
+
 
 test('updateRule: patch severity/message/when; when dalam patch tetap divalidasi', () => {
   const res = ConfigLogic.applyUpdateRule(RULES, 'K7', {
