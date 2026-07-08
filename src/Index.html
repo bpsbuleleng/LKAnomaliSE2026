@@ -457,7 +457,7 @@
         r.addEventListener('change', function () { if (r.checked) onChange(o.value); });
         var t = document.createElement('span');
         t.className = 'text-base leading-snug';
-        t.textContent = o.label;
+        t.textContent = o.value + '. ' + o.label;
         lbl.appendChild(r);
         lbl.appendChild(t);
         box.appendChild(lbl);
