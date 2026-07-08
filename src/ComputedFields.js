@@ -61,6 +61,14 @@ var ComputedFields = (function () {
     return jml > 0 ? num(a.b4r5) / jml : null;
   }
 
+  // r13f = kategori 1 digit, digit PERTAMA dari kode KBLI 5 digit r13g —
+  // string (bukan number) supaya konsisten dengan cara kode wilayah/KBLI
+  // diperlakukan di app ini (leading zero itu bagian dari identitasnya).
+  function r13f(a) {
+    var kode = String(a.r13g == null ? '' : a.r13g);
+    return kode ? kode.charAt(0) : '';
+  }
+
   function r26Total(a) {
     return num(a.r26a) + num(a.r26b) + num(a.r26c) + num(a.r26d) + num(a.r26e);
   }
@@ -87,6 +95,7 @@ var ComputedFields = (function () {
       ['luas_per_kapita', luasPerKapita, 'Luas lantai per kapita m² (hitungan)']
     ],
     usaha: [
+      ['r13f', r13f, 'Kategori 1 digit dari kode KBLI (hitungan)'],
       ['r26_total', r26Total, 'Total biaya usaha setahun (hitungan)'],
       ['pangsa_biaya_produksi', pangsaBiayaProduksi, 'Pangsa biaya produksi 0-1 (hitungan)'],
       ['rasio_pendapatan_biaya', rasioPendapatanBiaya, 'Rasio pendapatan/biaya (hitungan)']

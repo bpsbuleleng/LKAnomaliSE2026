@@ -91,7 +91,8 @@ test('listRecordsFor: hanya milik sendiri, urut terbaru dulu, bentuk summary', (
   assert.deepEqual(list[0], {
     record_id: 'R-2', jenis: 'keluarga', status: 'draft', judul: '',
     idsubsls: '5108010002000101', nmkec: 'Gerokgak', nmdesa: 'Sumberkima',
-    nmsls: 'Banjar Dinas Kertha Kusuma', kdsubsls: '01', updated_at: T2
+    nmsls: 'Banjar Dinas Kertha Kusuma', kdsubsls: '01', nmppl: 'NI MADE RUSPINI',
+    anomalies: [], updated_at: T2
   });
   assert.equal(RecordLogic.listRecordsFor(records, KETUT).length, 1);
 });

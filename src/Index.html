@@ -20,6 +20,12 @@
     </div>
   </div>
 
+  <!-- FAB scroll-to-top — muncul setelah scroll turun cukup jauh -->
+  <button id="fab-top" data-testid="fab-top" type="button"
+    class="hidden fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full bg-orange-600 text-white shadow-lg flex items-center justify-center active:bg-orange-700 text-xl">
+    &uarr;
+  </button>
+
   <?!= include('UiFx'); ?>
   <?!= include('CascadeLogic'); ?>
   <?!= include('SearchableSelect'); ?>
@@ -31,7 +37,7 @@
     // halaman. Identitas PML (nama/email/sobatId, TANPA password) juga
     // disalin ke localStorage (lihat SESSION_KEY) supaya refresh halaman
     // tidak memaksa login ulang. Draft offline ada di IndexedDB (DraftStore).
-    var App = { state: { pml: null, wilayahRows: null, questionCache: {} } };
+    var App = { state: { pml: null, wilayahRows: null, questionCache: {}, dashboardItems: [] } };
     // Kuesioner yang sedang terbuka + state sync engine-nya.
     var Q = { draft: null, prefilling: false, debounceTimer: null, retryTimer: null, inFlight: false };
     var sel = {}; // instance SearchableSelect per level wilayah
@@ -150,12 +156,14 @@
       ensureWilayah().catch(function () {});
       ensureQuestions('usaha').catch(function () {});
       ensureQuestions('keluarga').catch(function () {});
+      ensureKbli().catch(function () {});
     }
 
     function loadRecords() {
       var email = App.state.pml.email;
       el('record-list').innerHTML = '';
       el('record-empty').classList.add('hidden');
+      el('record-filtered-empty').classList.add('hidden');
       el('record-loading').classList.remove('hidden');
       // Server bisa tak terjangkau (offline) → dashboard tetap tampil dari
       // draft lokal, jangan sampai record "hilang" dari daftar.
@@ -166,15 +174,72 @@
       Promise.all([serverP, localP]).then(function (vals) {
         el('record-loading').classList.add('hidden');
         var items = DraftLogic.mergeDashboard(vals[0] || [], vals[1]);
+        App.state.dashboardItems = items;
+        populateFilterOptions(items);
         if (!items.length) {
           el('record-empty').classList.remove('hidden');
           UiFx.replayAnim(el('record-empty'), 'anim-in');
           return;
         }
-        items.forEach(function (item) { el('record-list').appendChild(dashCard(item)); });
-        UiFx.staggerIn(el('record-list').children);
+        renderRecordList();
       });
     }
+
+    // ==== FILTER DAFTAR RECORD (client-side, atas data yang sudah termuat) ====
+
+    // Opsi Wilayah/PPL/Anomali diisi dinamis dari record yang termuat — cuma
+    // menampilkan pilihan yang benar-benar relevan, bukan daftar statis.
+    function populateFilterOptions(items) {
+      var wilayahSel = el('filter-wilayah'), pplSel = el('filter-ppl'), anomaliSel = el('filter-anomali');
+      var prevWilayah = wilayahSel.value, prevPpl = pplSel.value, prevAnomali = anomaliSel.value;
+      var wilayahSet = {}, pplSet = {}, anomaliSet = {};
+      items.forEach(function (it) {
+        if (it.nmkec) wilayahSet[it.nmkec] = true;
+        if (it.nmppl) pplSet[it.nmppl] = true;
+        (it.anomalies || []).forEach(function (a) { if (a.message) anomaliSet[a.message] = true; });
+      });
+      function rebuild(sel, keep, values, allLabel) {
+        sel.innerHTML = '';
+        sel.appendChild(new Option(allLabel, ''));
+        values.sort().forEach(function (v) { sel.appendChild(new Option(v, v)); });
+        if (values.indexOf(keep) !== -1) sel.value = keep;
+      }
+      rebuild(wilayahSel, prevWilayah, Object.keys(wilayahSet), 'Semua Wilayah');
+      rebuild(pplSel, prevPpl, Object.keys(pplSet), 'Semua PPL');
+      var anomaliValues = Object.keys(anomaliSet).sort();
+      anomaliSel.innerHTML = '';
+      anomaliSel.appendChild(new Option('Semua Anomali', ''));
+      anomaliSel.appendChild(new Option('Tidak ada anomali', '__none__'));
+      anomaliValues.forEach(function (v) { anomaliSel.appendChild(new Option(v, v)); });
+      if (prevAnomali === '__none__' || anomaliValues.indexOf(prevAnomali) !== -1) anomaliSel.value = prevAnomali;
+    }
+
+    function matchesFilters(item) {
+      var status = el('filter-status').value;
+      var wilayah = el('filter-wilayah').value;
+      var anomali = el('filter-anomali').value;
+      var ppl = el('filter-ppl').value;
+      if (status && item.status !== status) return false;
+      if (wilayah && item.nmkec !== wilayah) return false;
+      if (ppl && item.nmppl !== ppl) return false;
+      if (anomali === '__none__' && (item.anomalies || []).length > 0) return false;
+      if (anomali && anomali !== '__none__' && !(item.anomalies || []).some(function (a) { return a.message === anomali; })) return false;
+      return true;
+    }
+
+    function renderRecordList() {
+      var items = App.state.dashboardItems || [];
+      var filtered = items.filter(matchesFilters);
+      el('record-list').innerHTML = '';
+      el('record-filtered-empty').classList.toggle('hidden', !(items.length > 0 && filtered.length === 0));
+      if (!filtered.length) return;
+      filtered.forEach(function (item) { el('record-list').appendChild(dashCard(item)); });
+      UiFx.staggerIn(el('record-list').children);
+    }
+
+    ['filter-status', 'filter-wilayah', 'filter-anomali', 'filter-ppl'].forEach(function (id) {
+      el(id).addEventListener('change', renderRecordList);
+    });
 
     function dashCard(item) {
       var btn = document.createElement('button');
@@ -369,6 +434,16 @@
       });
     }
 
+    // Daftar kode KBLI (field r13g) — statis, cukup diambil sekali per sesi.
+    function ensureKbli() {
+      if (App.state.kbliOptions) return Promise.resolve(App.state.kbliOptions);
+      return gsRun('getKbliOptions').then(function (res) {
+        var list = (res && res.ok && res.options) || [];
+        App.state.kbliOptions = list.map(function (d) { return { kode: d.kode, nama: d.judul }; });
+        return App.state.kbliOptions;
+      });
+    }
+
     function openQuestionnaire(draft, wilayahSnapshot) {
       Q.draft = draft;
       Q.prefilling = true;
@@ -395,7 +470,7 @@
       refreshSyncIndicator();
       showView('record');
 
-      Promise.all([ensureWilayah(), ensureQuestions(draft.jenis)]).then(function (vals) {
+      Promise.all([ensureWilayah(), ensureQuestions(draft.jenis), ensureKbli()]).then(function (vals) {
         var rows = vals[0];
         var questions = vals[1];
         var hasAssignment = rows.length > 0;
@@ -454,7 +529,48 @@
       UiFx.staggerIn(rcTop.children, 25);
       UiFx.staggerIn(qc.children, 25);
       UiFx.staggerIn(rc.children, 25);
+      buildToc(flat, groupOrder);
     }
+
+    // ==== SIDEBAR TOC: lompat ke pertanyaan/roster mana pun ====
+
+    function tocLink(nav, label, anchorId) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'block w-full text-left px-2 py-2 min-h-[36px] rounded-lg text-slate-600 active:bg-orange-50 truncate';
+      b.textContent = label;
+      b.addEventListener('click', function () {
+        closeToc();
+        var target = document.getElementById(anchorId);
+        if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      nav.appendChild(b);
+    }
+
+    function buildToc(flat, groupOrder) {
+      var nav = el('toc-list');
+      nav.innerHTML = '';
+      tocLink(nav, 'Wilayah', 'wilayah-section');
+      groupOrder.forEach(function (g) {
+        if (g === 'anggota_keluarga') tocLink(nav, rosterTitle(g), 'qanchor-roster-' + g);
+      });
+      flat.forEach(function (q) { tocLink(nav, q.label, 'qanchor-' + q.question_id); });
+      groupOrder.forEach(function (g) {
+        if (g !== 'anggota_keluarga') tocLink(nav, rosterTitle(g), 'qanchor-roster-' + g);
+      });
+    }
+
+    function openToc() {
+      el('toc-panel').classList.remove('-translate-x-full');
+      el('toc-backdrop').classList.remove('hidden');
+    }
+    function closeToc() {
+      el('toc-panel').classList.add('-translate-x-full');
+      el('toc-backdrop').classList.add('hidden');
+    }
+    el('toc-toggle').addEventListener('click', openToc);
+    el('toc-close').addEventListener('click', closeToc);
+    el('toc-backdrop').addEventListener('click', closeToc);
 
     var INPUT_CLS = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-orange-500';
 
@@ -492,6 +608,14 @@
 
     function fieldElement(q, value, onChange, testidSuffix) {
       var wrap = document.createElement('div');
+      // py-3 + divide-y milik questions-container → tiap pertanyaan flat
+      // punya jarak & garis pembatas jelas. Field roster (testidSuffix
+      // terisi) sudah punya spacing dari card roster, jadi tidak perlu ini —
+      // dan tidak dapat anchor TOC (cuma section roster yang dirujuk).
+      if (!testidSuffix) {
+        wrap.className = 'py-3 first:pt-0 last:pb-0';
+        wrap.id = 'qanchor-' + q.question_id;
+      }
       var lbl = document.createElement('label');
       lbl.className = 'block text-sm font-medium mb-1';
       lbl.textContent = q.label + (q.required ? ' *' : '');
@@ -543,6 +667,17 @@
           input.value = fmtID(n);
         });
         input.addEventListener('input', function () { onChange(parseID(input.value)); });
+      } else if (q.type === 'kbli') {
+        // ~1500 kode — pakai SearchableSelect yang sama dengan wilayah
+        // (bukan radio/dropdown polos). Value = kode (string), BUKAN objek.
+        input = document.createElement('div');
+        input.setAttribute('data-name', 'kbli-' + q.question_id + (testidSuffix || ''));
+        var kbliSel = createSearchableSelect(input, {
+          placeholder: 'Cari kode/judul KBLI...',
+          onSelect: function (opt) { onChange(opt.kode); }
+        });
+        kbliSel.setOptions(App.state.kbliOptions || []);
+        if (value) kbliSel.setValue(value);
       } else { // text | date
         input = document.createElement('input');
         input.type = q.type === 'date' ? 'date' : 'text';
@@ -569,6 +704,7 @@
     function rosterSection(group, fields) {
       var sec = document.createElement('div');
       sec.className = 'space-y-3';
+      sec.id = 'qanchor-roster-' + group; // target scroll dari sidebar TOC
       var head = document.createElement('div');
       head.className = 'flex items-center justify-between';
       var title = document.createElement('p');
@@ -629,13 +765,22 @@
 
         var head = document.createElement('div');
         head.className = 'flex items-center justify-between';
+        var headLeft = document.createElement('button');
+        headLeft.type = 'button';
+        headLeft.setAttribute('data-testid', 'roster-toggle-' + group + '-' + i);
+        headLeft.className = 'flex items-center gap-2 text-left flex-1 min-h-[44px] -my-2 py-2';
+        var chevron = document.createElement('span');
+        chevron.className = 'text-slate-400 transition-transform inline-block';
+        chevron.textContent = '▾'; // ▾ — expanded (default: SEMUA baris terbuka)
         var no = document.createElement('p');
         no.className = 'text-sm font-semibold';
         no.textContent = '#' + (i + 1);
+        headLeft.appendChild(chevron);
+        headLeft.appendChild(no);
         var rm = document.createElement('button');
         rm.type = 'button';
         rm.setAttribute('data-testid', 'roster-remove-' + group + '-' + i);
-        rm.className = 'h-11 px-3 rounded-lg text-red-600 text-sm font-medium active:bg-red-50';
+        rm.className = 'h-11 px-3 rounded-lg text-red-600 text-sm font-medium active:bg-red-50 shrink-0';
         rm.textContent = 'Hapus';
         rm.addEventListener('click', function () {
           if (rowsWrap.dataset.removing) return; // tunggu animasi hapus selesai
@@ -647,15 +792,27 @@
             renderRosterRows(rowsWrap, group, fields, countEl);
           });
         });
-        head.appendChild(no);
+        head.appendChild(headLeft);
         head.appendChild(rm);
         card.appendChild(head);
 
+        var body = document.createElement('div');
+        body.setAttribute('data-testid', 'roster-body-' + group + '-' + i);
+        body.className = 'space-y-3';
         fields.forEach(function (q) {
-          card.appendChild(fieldElement(q, rowData[q.question_id], function (value) {
+          body.appendChild(fieldElement(q, rowData[q.question_id], function (value) {
             DraftLogic.setRosterField(Q.draft, group, i, q.question_id, value, nowIso());
             afterEdit();
           }, '-' + i));
+        });
+        card.appendChild(body);
+
+        // Expandable: default SEMUA baris terbuka (supaya alur isi/baca data
+        // lama tidak berubah) — collapse murni opsional untuk memangkas
+        // scroll saat anggota keluarga banyak.
+        headLeft.addEventListener('click', function () {
+          var collapsed = body.classList.toggle('hidden');
+          chevron.textContent = collapsed ? '▸' : '▾'; // ▸ : ▾
         });
         rowsWrap.appendChild(card);
       });
@@ -1033,6 +1190,14 @@
           setSubmitBusy(false);
           showRecordError('Submit butuh koneksi ke server. Perubahan aman tersimpan lokal dan bisa disubmit lagi nanti.');
         });
+    });
+
+    // ==== FAB scroll-to-top ====
+    window.addEventListener('scroll', function () {
+      el('fab-top').classList.toggle('hidden', window.scrollY < 300);
+    });
+    el('fab-top').addEventListener('click', function () {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
     initCascades();

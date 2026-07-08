@@ -134,7 +134,8 @@ var DraftLogic = (function () {
         // Draft lokal dirty lebih baru dari server → judul dari jawaban lokal.
         judul: dirty ? judulRecord(d.jenis, d.answers) : (r.judul || ''),
         updated: dirty ? d.updatedLocal : r.updated_at,
-        idsubsls: r.idsubsls, nmdesa: r.nmdesa, nmsls: r.nmsls, kdsubsls: r.kdsubsls
+        idsubsls: r.idsubsls, nmkec: r.nmkec || '', nmdesa: r.nmdesa, nmsls: r.nmsls, kdsubsls: r.kdsubsls,
+        nmppl: r.nmppl || '', anomalies: r.anomalies || []
       };
     });
     (localDrafts || []).forEach(function (d) {
@@ -145,7 +146,8 @@ var DraftLogic = (function () {
         jenis: d.jenis, status: 'draft', unsynced: isDirty(d),
         judul: judulRecord(d.jenis, d.answers),
         updated: d.updatedLocal, idsubsls: d.idsubsls,
-        nmdesa: '', nmsls: '', kdsubsls: ''
+        nmkec: '', nmdesa: '', nmsls: '', kdsubsls: '',
+        nmppl: '', anomalies: d.anomalies || []
       });
     });
     items.sort(function (a, b) {

@@ -32,6 +32,19 @@ async function resetRecords(f) {
   );
 }
 
+function direct(f, fn, args) {
+  return f.locator('body').evaluate(
+    (el, { fn, args }) =>
+      new Promise((resolve) => {
+        const runner = google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler((e) => resolve({ __failure: String(e) }));
+        runner[fn](...args);
+      }),
+    { fn, args }
+  );
+}
+
 async function pickWilayah(f) {
   await f.getByTestId('kecamatan-trigger').click();
   await f.getByTestId('kecamatan-list').locator('li[data-kode="010"]').click();
@@ -122,4 +135,34 @@ test('submit usaha: computed fields server-side memicu multi anomali (U2 + U4)',
   await expect(dialogItems).toHaveCount(2);
   await expect(dialogItems.filter({ hasText: 'Keuntungan Usaha' })).toBeVisible();
   await expect(dialogItems.filter({ hasText: 'rasio pendapatan' })).toBeVisible();
+});
+
+test('KBLI (r13g): searchable select cari kode/judul, tersimpan sbg kode; r13f dihitung otomatis (digit pertama)', async ({ page }) => {
+  const f = await login(page, KADEK);
+  await resetRecords(f);
+  await newRecord(f, 'usaha');
+
+  await pickWilayah(f);
+  await f.getByTestId('q-nama_usaha').fill('WARUNG SEGARA');
+  await f.getByTestId('q-r11a-opt-2').check();
+  await f.getByTestId('q-r13b1-opt-3').check();
+  await f.getByTestId('q-r25').fill('2019');
+  await f.getByTestId('q-r27c').fill('40000000');
+
+  // Cari via judul, bukan kode langsung — memastikan pencarian teks judul jalan.
+  await f.getByTestId('kbli-r13g-trigger').click();
+  await f.getByTestId('kbli-r13g-search').fill('PERTANIAN JAGUNG');
+  await f.getByTestId('kbli-r13g-list').locator('li[data-kode="01111"]').click();
+  await expect(f.getByTestId('kbli-r13g-trigger')).toContainText('01111');
+  await expect(f.getByTestId('kbli-r13g-trigger')).toContainText('PERTANIAN JAGUNG');
+
+  await expect(f.getByTestId('sync-indicator')).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
+  await f.getByTestId('record-submit').click();
+  await expect(f.getByTestId('anomaly-dialog')).toBeVisible();
+  await f.getByTestId('anomaly-done').click();
+
+  const list = await direct(f, 'listRecords', [KADEK]);
+  const rec = await direct(f, 'getRecord', [KADEK, list.records[0].record_id]);
+  expect(rec.record.answers.r13g).toBe('01111');
+  expect(rec.record.answers.r13f).toBe('0'); // digit pertama, string (bukan number)
 });

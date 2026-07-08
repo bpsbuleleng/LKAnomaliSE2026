@@ -55,7 +55,12 @@ var RecordLogic = (function () {
       record_id: rec.record_id, jenis: rec.jenis, status: rec.status,
       judul: judulRecord(rec.jenis, rec.answers),
       idsubsls: s(w.idsubsls), nmkec: s(w.nmkec), nmdesa: s(w.nmdesa),
-      nmsls: s(w.nmsls), kdsubsls: s(w.kdsubsls),
+      nmsls: s(w.nmsls), kdsubsls: s(w.kdsubsls), nmppl: s(w.nmppl),
+      // Dipakai filter dashboard (jenis anomali / "tidak ada anomali") —
+      // bentuk minimal, message dipakai sebagai label filter.
+      anomalies: (rec.anomalies || []).map(function (a) {
+        return { rule_id: a.rule_id, severity: a.severity, message: a.message };
+      }),
       updated_at: rec.updated_at
     };
   }

@@ -51,6 +51,15 @@ test('luas_per_kapita: pakai b1r9 hasil hitung; b1r9=0 → null (guard bagi 0)',
   assert.equal(keluarga({ b4r5: 80 }).luas_per_kapita, null);
 });
 
+// ==== r13f (kategori 1 digit dari kode KBLI r13g) ====
+
+test('r13f: digit pertama kode KBLI 5 digit; kosong/belum diisi → ""', () => {
+  assert.equal(usaha({ r13g: '01111' }).r13f, '0');
+  assert.equal(usaha({ r13g: '47111' }).r13f, '4');
+  assert.equal(usaha({}).r13f, '');
+  assert.equal(usaha({ r13g: '' }).r13f, '');
+});
+
 // ==== r26_total, pangsa_biaya_produksi, rasio_pendapatan_biaya ====
 
 test('r26_total: jumlah 5 komponen biaya; kosong = 0', () => {

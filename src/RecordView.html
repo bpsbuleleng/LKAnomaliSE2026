@@ -1,12 +1,38 @@
-<section id="view-record" data-testid="record-view" class="view hidden max-w-md mx-auto px-4 py-6">
-  <div class="flex items-center justify-between mb-3">
-    <button id="record-back" data-testid="record-back" type="button"
-      class="h-11 px-3 rounded-lg text-orange-700 font-medium active:bg-orange-50">&larr; Kembali</button>
+<section id="view-record" data-testid="record-view" class="view hidden max-w-md lg:max-w-5xl mx-auto px-4 py-6">
+  <div class="flex items-center justify-between mb-3 gap-2">
+    <div class="flex items-center gap-1">
+      <button id="record-back" data-testid="record-back" type="button"
+        class="h-11 px-3 rounded-lg text-orange-700 font-medium active:bg-orange-50">&larr; Kembali</button>
+      <button id="toc-toggle" data-testid="toc-toggle" type="button"
+        class="h-11 px-3 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 active:bg-slate-50">
+        &#9776; Daftar
+      </button>
+    </div>
     <span id="sync-indicator" data-testid="sync-indicator" data-state="idle"
       class="hidden text-xs font-medium px-2.5 py-1.5 rounded-full"></span>
   </div>
 
-  <div class="bg-white rounded-2xl shadow p-5 space-y-5">
+  <!-- Backdrop drawer TOC (mobile only — sidebar persisten di lg:) -->
+  <div id="toc-backdrop" data-testid="toc-backdrop" class="hidden fixed inset-0 z-40 bg-black/40 lg:hidden"></div>
+
+  <div class="lg:flex lg:gap-6 lg:items-start">
+    <!-- Sidebar TOC: drawer slide-in di mobile, kolom persisten di desktop.
+         Scroll ke pertanyaan/roster mana pun via anchor id 'qanchor-*'. -->
+    <aside id="toc-panel" data-testid="toc-panel"
+      class="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] -translate-x-full transition-transform duration-200
+        bg-white shadow-xl overflow-y-auto p-5
+        lg:static lg:z-auto lg:w-56 lg:shrink-0 lg:translate-x-0 lg:shadow-none lg:transition-none
+        lg:border lg:border-slate-200 lg:rounded-2xl lg:p-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)]">
+      <div class="flex items-center justify-between mb-3 lg:hidden">
+        <p class="text-sm font-semibold text-slate-600">Daftar Pertanyaan</p>
+        <button id="toc-close" data-testid="toc-close" type="button"
+          class="h-9 w-9 rounded-lg text-slate-500 active:bg-slate-100">&times;</button>
+      </div>
+      <p class="text-sm font-semibold text-slate-600 mb-2 hidden lg:block">Daftar Pertanyaan</p>
+      <nav id="toc-list" class="space-y-0.5 text-sm"></nav>
+    </aside>
+
+    <div class="flex-1 min-w-0 bg-white rounded-2xl shadow p-5 space-y-5">
     <div class="flex items-center gap-2">
       <h1 id="record-title" class="text-xl font-bold">Record Baru</h1>
       <span id="record-jenis-chip" data-testid="record-jenis-chip"
@@ -76,7 +102,7 @@
     <p class="text-sm font-semibold text-slate-600">Kuesioner</p>
     <!-- Roster anggota keluarga tampil PALING AWAL (roster lain tetap di bawah) -->
     <div id="roster-container-top" class="space-y-5"></div>
-    <div id="questions-container" class="space-y-4"></div>
+    <div id="questions-container" class="divide-y divide-slate-100"></div>
     <div id="roster-container" class="space-y-5"></div>
 
     <!-- Validasi isian (blocking): daftar field wajib yang belum terisi -->
@@ -100,6 +126,7 @@
       class="w-full h-12 rounded-xl border border-red-300 text-red-600 text-base font-semibold active:bg-red-50">
       Hapus Record
     </button>
+    </div>
   </div>
 
   <!-- Dialog konfirmasi keluar saat ada perubahan belum ke-sync -->

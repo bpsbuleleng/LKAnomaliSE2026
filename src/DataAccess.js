@@ -27,6 +27,12 @@ function getWilayah(pmlEmail) {
   return { ok: true, rows: WilayahLogic.filterByPml(SheetDb.readAlokasi(), pmlEmail) };
 }
 
+// ==== KBLI (referensi statis, lihat KbliData.js) ====
+
+function getKbliOptions() {
+  return { ok: true, options: KbliData.LIST };
+}
+
 function getPPL(idsubsls) {
   var row = WilayahLogic.findByIdsubsls(SheetDb.readAlokasi(), idsubsls);
   if (!row) return { ok: false, error: 'NOT_FOUND' };
