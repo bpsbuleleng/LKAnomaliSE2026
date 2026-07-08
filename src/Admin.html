@@ -14,7 +14,7 @@
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-bold">Config SE2026</h1>
       <button id="admin-logout" data-testid="admin-logout" type="button"
-        class="h-11 px-3 rounded-lg text-sky-700 font-medium active:bg-sky-50">Keluar</button>
+        class="h-11 px-3 rounded-lg text-orange-700 font-medium active:bg-orange-50">Keluar</button>
     </div>
 
     <div class="flex rounded-xl bg-slate-200 p-1" role="tablist">
@@ -38,8 +38,20 @@
     var Adm = {
       pw: null, jenis: 'usaha',
       questions: [], rules: [], fields: [],
-      editingQ: null, editingR: null
+      editingQ: null, editingR: null,
+      // Mode Ubah Urutan: staging lokal, baru commit ke server saat Simpan.
+      reordering: false, reorderIds: [],
+      // Rule Mode Sederhana: kombinator + daftar baris kondisi.
+      combinator: 'all', condRows: []
     };
+
+    // Operator rule (dipakai membangun dropdown per baris kondisi).
+    var RULE_OPS = [
+      ['==', '== (sama dengan)'], ['!=', '!= (tidak sama)'],
+      ['>', '>'], ['>=', '>='], ['<', '<'], ['<=', '<='],
+      ['in', 'in (salah satu dari)'], ['not_in', 'not_in (bukan salah satu dari)'],
+      ['empty', 'empty (kosong)'], ['not_empty', 'not_empty (terisi)'], ['regex', 'regex']
+    ];
 
     var ADMIN_ERROR_MESSAGES = {
       FORBIDDEN: 'Password admin salah — akses ditolak server.',
@@ -121,7 +133,7 @@
       Adm.jenis = jenis;
       ['usaha', 'keluarga'].forEach(function (j) {
         el('jenis-tab-' + j).className = 'flex-1 h-11 rounded-lg text-sm font-semibold ' +
-          (j === jenis ? 'bg-white shadow text-sky-700' : 'text-slate-500');
+          (j === jenis ? 'bg-white shadow text-orange-700' : 'text-slate-500');
       });
       loadAll();
     }
@@ -163,18 +175,19 @@
     // ==== KELOLA PERTANYAAN ====
 
     function renderQuestions() {
+      if (Adm.reordering) { renderQuestionsReorder(); return; }
       var wrap = el('aq-list');
       wrap.innerHTML = '';
       if (!Adm.questions.length) {
         wrap.innerHTML = '<p class="text-sm text-slate-400">Belum ada pertanyaan.</p>';
         return;
       }
-      Adm.questions.forEach(function (q, i) {
+      Adm.questions.forEach(function (q) {
         var row = document.createElement('div');
         row.setAttribute('data-testid', 'aq-row-' + q.question_id);
         row.className = 'rounded-xl border border-slate-200 p-3 space-y-2' + (q.active ? '' : ' opacity-60 bg-slate-50');
         var badges = badge(q.type, 'bg-slate-100 text-slate-600');
-        if (q.required) badges += ' ' + badge('wajib', 'bg-sky-100 text-sky-700');
+        if (q.required) badges += ' ' + badge('wajib', 'bg-orange-100 text-orange-700');
         if (q.roster_group) badges += ' ' + badge('roster: ' + q.roster_group, 'bg-indigo-100 text-indigo-700');
         if (!q.active) badges += ' ' + badge('NONAKTIF', 'bg-red-100 text-red-700');
         row.innerHTML =
@@ -190,8 +203,6 @@
 
         var btns = document.createElement('div');
         btns.className = 'flex gap-2';
-        btns.appendChild(smallBtn('↑', 'aq-up-' + q.question_id, i === 0, function () { moveQuestion(i, -1); }));
-        btns.appendChild(smallBtn('↓', 'aq-down-' + q.question_id, i === Adm.questions.length - 1, function () { moveQuestion(i, 1); }));
         btns.appendChild(smallBtn('Edit', 'aq-edit-' + q.question_id, false, function () { openQuestionDialog(q); }));
         btns.appendChild(smallBtn(q.active ? 'Nonaktifkan' : 'Aktifkan', 'aq-toggle-' + q.question_id, false, function () {
           runMutation(gsRun('setQuestionActive', Adm.pw, Adm.jenis, q.question_id, !q.active));
@@ -213,6 +224,200 @@
       return b;
     }
 
+    // ---- Mode Ubah Urutan (drag & drop) ----
+    // Seret ≡ untuk menata urutan lokal (Adm.reorderIds); tombol ↑/↓ juga
+    // menata staging (aksesibilitas). Tidak ada panggilan server sampai
+    // "Simpan Urutan" ditekan. Batal membuang perubahan.
+
+    function enterReorder() {
+      if (!Adm.questions.length) return;
+      Adm.reordering = true;
+      Adm.reorderIds = Adm.questions.map(function (q) { return q.question_id; });
+      el('aq-add').classList.add('hidden');
+      el('aq-reorder').classList.add('hidden');
+      el('aq-hint').classList.add('hidden');
+      el('aq-reorder-bar').classList.remove('hidden');
+      renderQuestions();
+    }
+
+    function exitReorder() {
+      Adm.reordering = false;
+      el('aq-add').classList.remove('hidden');
+      el('aq-reorder').classList.remove('hidden');
+      el('aq-hint').classList.remove('hidden');
+      el('aq-reorder-bar').classList.add('hidden');
+      renderQuestions();
+    }
+
+    el('aq-reorder').addEventListener('click', enterReorder);
+    el('aq-reorder-cancel').addEventListener('click', exitReorder);
+    el('aq-reorder-save').addEventListener('click', function () {
+      var btn = el('aq-reorder-save');
+      UiFx.btnBusy(btn, true, 'Menyimpan…');
+      gsRun('reorderQuestions', Adm.pw, Adm.jenis, Adm.reorderIds.slice())
+        .then(function (res) {
+          UiFx.btnBusy(btn, false);
+          if (!(res && res.ok)) { alert(serverError(res)); return; }
+          Adm.reordering = false;
+          el('aq-add').classList.remove('hidden');
+          el('aq-reorder').classList.remove('hidden');
+          el('aq-hint').classList.remove('hidden');
+          el('aq-reorder-bar').classList.add('hidden');
+          loadAll(); // gambar ulang dengan order final dari server
+        })
+        .catch(function () {
+          UiFx.btnBusy(btn, false);
+          alert('Gagal terhubung ke server.');
+        });
+    });
+
+    function renderQuestionsReorder() {
+      var wrap = el('aq-list');
+      wrap.innerHTML = '';
+      var byId = {};
+      Adm.questions.forEach(function (q) { byId[q.question_id] = q; });
+      Adm.reorderIds.forEach(function (id, i) {
+        var q = byId[id];
+        if (!q) return;
+        var row = document.createElement('div');
+        row.className = 'reorder-row rounded-xl border border-slate-200 bg-white p-3 flex items-center gap-2' + (q.active ? '' : ' opacity-60');
+        row.setAttribute('data-qid', id);
+        row.setAttribute('data-testid', 'aq-reorder-row-' + id);
+
+        var handle = document.createElement('span');
+        handle.className = 'drag-handle shrink-0 w-11 h-11 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-xl select-none';
+        handle.textContent = '≡';
+        handle.setAttribute('aria-label', 'Seret untuk mengubah urutan');
+        row.appendChild(handle);
+
+        var num = document.createElement('span');
+        num.className = 'reorder-num shrink-0 w-6 h-6 rounded-full bg-slate-100 text-slate-500 text-xs font-bold flex items-center justify-center';
+        num.textContent = i + 1;
+        row.appendChild(num);
+
+        var mid = document.createElement('div');
+        mid.className = 'min-w-0 flex-1';
+        var lbl = document.createElement('p');
+        lbl.className = 'text-sm font-medium leading-snug truncate';
+        lbl.textContent = q.label;
+        var idp = document.createElement('p');
+        idp.className = 'text-xs text-slate-400 font-mono';
+        idp.textContent = id + (q.active ? '' : ' · NONAKTIF');
+        mid.appendChild(lbl);
+        mid.appendChild(idp);
+        row.appendChild(mid);
+
+        var upDown = document.createElement('div');
+        upDown.className = 'flex flex-col gap-1 shrink-0';
+        upDown.appendChild(miniBtn('↑', 'aq-up-' + id, i === 0, function () { moveReorder(i, -1); }));
+        upDown.appendChild(miniBtn('↓', 'aq-down-' + id, i === Adm.reorderIds.length - 1, function () { moveReorder(i, 1); }));
+        row.appendChild(upDown);
+
+        wrap.appendChild(row);
+        makeSortableRow(row, handle);
+      });
+    }
+
+    function miniBtn(text, testid, disabled, onClick) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = text;
+      b.disabled = disabled;
+      b.setAttribute('data-testid', testid);
+      b.className = 'w-9 h-9 rounded-lg border border-slate-200 text-sm font-bold active:bg-slate-100 disabled:opacity-30 text-slate-600';
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    function moveReorder(index, delta) {
+      Adm.reorderIds = AdminLogic.moveItem(Adm.reorderIds, index, delta);
+      renderQuestions();
+    }
+
+    // -- drag pointer-events (jalan di sentuh & mouse) --
+    var drag = null; // { el, pid, grabY, floatY }
+
+    function makeSortableRow(row, handle) {
+      handle.addEventListener('pointerdown', function (e) {
+        if (!Adm.reordering || drag) return;
+        e.preventDefault();
+        try { row.setPointerCapture(e.pointerId); } catch (_) {}
+        var rect = row.getBoundingClientRect();
+        drag = { el: row, pid: e.pointerId, grabY: e.clientY - rect.top, floatY: 0 };
+        row.classList.add('dragging');
+      });
+      row.addEventListener('pointermove', function (e) {
+        if (!drag || drag.el !== row || e.pointerId !== drag.pid) return;
+        e.preventDefault();
+        autoScroll(e.clientY);
+        positionFloat(e.clientY);
+        reorderDom(e.clientY);
+      });
+      var end = function () {
+        if (!drag || drag.el !== row) return;
+        try { row.releasePointerCapture(drag.pid); } catch (_) {}
+        row.classList.remove('dragging');
+        row.style.transform = '';
+        drag = null;
+        Adm.reorderIds = readOrderFromDom();
+        renumberReorder();
+      };
+      row.addEventListener('pointerup', end);
+      row.addEventListener('pointercancel', end);
+    }
+
+    // Elemen mengambang mengikuti jari: hitung ulang tiap frame relatif posisi
+    // natural (rect.top − transform sekarang) supaya tetap pas walau DOM/scroll
+    // bergeser saat disisipkan ulang.
+    function positionFloat(clientY) {
+      var rect = drag.el.getBoundingClientRect();
+      var naturalTop = rect.top - drag.floatY;
+      drag.floatY = (clientY - drag.grabY) - naturalTop;
+      drag.el.style.transform = 'translateY(' + drag.floatY + 'px)';
+    }
+
+    // Sisipkan elemen yang diseret sebelum baris pertama yang titik-tengahnya
+    // di bawah jari (pola standar reorder).
+    function reorderDom(clientY) {
+      var list = el('aq-list');
+      var rows = Array.prototype.slice.call(list.querySelectorAll('.reorder-row'))
+        .filter(function (r) { return r !== drag.el; });
+      var after = null;
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i].getBoundingClientRect();
+        if (clientY < r.top + r.height / 2) { after = rows[i]; break; }
+      }
+      if (after) {
+        if (drag.el.nextSibling !== after) list.insertBefore(drag.el, after);
+      } else if (list.lastChild !== drag.el) {
+        list.appendChild(drag.el);
+      }
+    }
+
+    function readOrderFromDom() {
+      return Array.prototype.slice.call(el('aq-list').querySelectorAll('.reorder-row'))
+        .map(function (r) { return r.getAttribute('data-qid'); });
+    }
+
+    // Perbarui nomor urut & disabled ↑/↓ tanpa menggambar ulang total.
+    function renumberReorder() {
+      var rows = el('aq-list').querySelectorAll('.reorder-row');
+      Array.prototype.forEach.call(rows, function (row, i) {
+        var num = row.querySelector('.reorder-num');
+        if (num) num.textContent = i + 1;
+        var btns = row.querySelectorAll('button');
+        if (btns[0]) btns[0].disabled = i === 0;
+        if (btns[1]) btns[1].disabled = i === rows.length - 1;
+      });
+    }
+
+    // Gulung halaman saat jari mendekati tepi atas/bawah (daftar bisa panjang).
+    function autoScroll(clientY) {
+      var margin = 80;
+      if (clientY < margin) window.scrollBy(0, -14);
+      else if (clientY > window.innerHeight - margin) window.scrollBy(0, 14);
+    }
+
     function afterMutation(res) {
       if (!(res && res.ok)) {
         setListsBusy(false);
@@ -230,12 +435,6 @@
         setListsBusy(false);
         alert('Gagal terhubung ke server.');
       });
-    }
-
-    function moveQuestion(index, delta) {
-      var ids = Adm.questions.map(function (q) { return q.question_id; });
-      var next = AdminLogic.moveItem(ids, index, delta);
-      runMutation(gsRun('reorderQuestions', Adm.pw, Adm.jenis, next));
     }
 
     // -- dialog tambah/edit --
@@ -341,47 +540,148 @@
       return null;
     }
 
-    function renderFieldSelect() {
-      var sel = el('ar-field');
-      sel.innerHTML = '';
-      Adm.fields.forEach(function (f) {
-        var label = f.id + ' — ' + f.label;
-        sel.appendChild(new Option(label, f.id));
+    // ---- Mode Sederhana: daftar baris kondisi (Adm.condRows) ----
+    // Struktur baris disimpan di Adm.condRows; nilai value/field2 dibaca dari
+    // DOM saat perlu (syncCondRows) supaya render ulang tak menghilangkan
+    // ketikan. buildSimpleGroup (AdminLogic) merangkainya jadi `when`.
+
+    function fillFieldSelect(sel, selected) {
+      Adm.fields.forEach(function (f) { sel.appendChild(new Option(f.id + ' — ' + f.label, f.id)); });
+      if (selected) sel.value = selected;
+    }
+
+    // Kontrol value satu baris: dropdown field pembanding (compare='field'),
+    // dropdown opsi select (==/!=), comma-list (in/not_in), atau input biasa.
+    function condValueControl(cond, idx) {
+      var op = cond.op;
+      if (op === 'empty' || op === 'not_empty') return null; // tak butuh value
+      if (cond.compare === 'field') {
+        var f2 = document.createElement('select');
+        f2.className = 'ar-cond-field2 w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+        f2.setAttribute('data-testid', 'ar-cond-field2-' + idx);
+        fillFieldSelect(f2, cond.field2);
+        return f2;
+      }
+      var meta = fieldMeta(cond.field), input;
+      if (meta && meta.options && (op === '==' || op === '!=')) {
+        input = document.createElement('select');
+        input.className = 'ar-cond-value w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+        meta.options.forEach(function (o) { input.appendChild(new Option(o.value + '. ' + o.label, String(o.value))); });
+        if (cond.value !== undefined && cond.value !== '') input.value = String(cond.value);
+      } else {
+        input = document.createElement('input');
+        input.className = 'ar-cond-value w-full h-12 px-3 text-base rounded-xl border border-slate-300';
+        input.placeholder = (op === 'in' || op === 'not_in') ? 'mis. 1, 2, 3' : '';
+        if (cond.value !== undefined && cond.value !== '') {
+          input.value = Array.isArray(cond.value) ? cond.value.join(', ') : String(cond.value);
+        }
+      }
+      input.setAttribute('data-testid', 'ar-cond-value-' + idx);
+      return input;
+    }
+
+    // Baca kembali nilai DOM tiap baris → Adm.condRows (sebelum render ulang).
+    function syncCondRows() {
+      var rows = el('ar-cond-list').querySelectorAll('.ar-cond-row');
+      Adm.condRows = Array.prototype.map.call(rows, function (row) {
+        var cmp = row.querySelector('.ar-cond-compare');
+        var f2 = row.querySelector('.ar-cond-field2');
+        var val = row.querySelector('.ar-cond-value');
+        return {
+          field: row.querySelector('.ar-cond-field').value,
+          op: row.querySelector('.ar-cond-op').value,
+          compare: cmp ? cmp.value : 'value',
+          field2: f2 ? f2.value : '',
+          value: val ? val.value : ''
+        };
       });
     }
 
-    // Input value menyesuaikan field & operator: dropdown opsi utk select
-    // dengan ==/!=, comma-list utk in/not_in, disembunyikan utk empty/not_empty.
-    function renderValueSlot(presetValue) {
-      var op = el('ar-op').value;
-      var meta = fieldMeta(el('ar-field').value);
-      var slot = el('ar-value-slot');
-      slot.innerHTML = '';
-      var noValue = op === 'empty' || op === 'not_empty';
-      el('ar-value-wrap').classList.toggle('hidden', noValue);
-      if (noValue) return;
+    function renderConditions() {
+      var list = el('ar-cond-list');
+      list.innerHTML = '';
+      Adm.condRows.forEach(function (cond, idx) {
+        // op non-perbandingan tak bisa compare='field' — paksa balik ke value.
+        var canCompareField = AdminLogic.CMP_OPS.indexOf(cond.op) !== -1;
+        if (!canCompareField && cond.compare === 'field') cond.compare = 'value';
 
-      var input;
-      if (meta && meta.options && (op === '==' || op === '!=')) {
-        input = document.createElement('select');
-        input.className = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
-        meta.options.forEach(function (o) {
-          input.appendChild(new Option(o.value + '. ' + o.label, String(o.value)));
-        });
-        if (presetValue !== undefined) input.value = String(presetValue);
-      } else {
-        input = document.createElement('input');
-        input.className = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300';
-        input.placeholder = (op === 'in' || op === 'not_in') ? 'mis. 1, 2, 3' : '';
-        if (presetValue !== undefined) {
-          input.value = Array.isArray(presetValue) ? presetValue.join(', ') : String(presetValue);
+        var row = document.createElement('div');
+        row.className = 'ar-cond-row rounded-xl border border-slate-200 p-3 space-y-2';
+        row.setAttribute('data-testid', 'ar-cond-' + idx);
+
+        var head = document.createElement('div');
+        head.className = 'flex items-center justify-between';
+        var lbl = document.createElement('span');
+        lbl.className = 'text-xs font-semibold text-slate-400';
+        lbl.textContent = 'Kondisi ' + (idx + 1);
+        head.appendChild(lbl);
+        var rm = document.createElement('button');
+        rm.type = 'button';
+        rm.textContent = 'Hapus';
+        rm.setAttribute('data-testid', 'ar-cond-remove-' + idx);
+        rm.className = 'h-8 px-2 rounded-lg text-xs font-medium text-red-600 active:bg-red-50 disabled:opacity-30';
+        rm.disabled = Adm.condRows.length <= 1; // selalu sisakan minimal 1 kondisi
+        rm.addEventListener('click', function () { removeCondition(idx); });
+        head.appendChild(rm);
+        row.appendChild(head);
+
+        var fieldSel = document.createElement('select');
+        fieldSel.className = 'ar-cond-field w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+        fieldSel.setAttribute('data-testid', 'ar-cond-field-' + idx);
+        fillFieldSelect(fieldSel, cond.field);
+        fieldSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
+        row.appendChild(fieldSel);
+
+        var opSel = document.createElement('select');
+        opSel.className = 'ar-cond-op w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+        opSel.setAttribute('data-testid', 'ar-cond-op-' + idx);
+        RULE_OPS.forEach(function (o) { opSel.appendChild(new Option(o[1], o[0])); });
+        opSel.value = cond.op;
+        opSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
+        row.appendChild(opSel);
+
+        // Pilih pembanding (Nilai / Field lain) — hanya untuk operator banding.
+        if (canCompareField) {
+          var cmpSel = document.createElement('select');
+          cmpSel.className = 'ar-cond-compare w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+          cmpSel.setAttribute('data-testid', 'ar-cond-compare-' + idx);
+          cmpSel.appendChild(new Option('Bandingkan dengan nilai', 'value'));
+          cmpSel.appendChild(new Option('Bandingkan dengan field lain', 'field'));
+          cmpSel.value = cond.compare === 'field' ? 'field' : 'value';
+          cmpSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
+          row.appendChild(cmpSel);
         }
-      }
-      input.setAttribute('data-testid', 'ar-value');
-      slot.appendChild(input);
+
+        var slot = document.createElement('div');
+        slot.className = 'ar-cond-value-slot';
+        var ctrl = condValueControl(cond, idx);
+        if (ctrl) slot.appendChild(ctrl);
+        row.appendChild(slot);
+
+        list.appendChild(row);
+      });
+      el('ar-combinator-wrap').classList.toggle('hidden', Adm.condRows.length < 2);
     }
-    el('ar-field').addEventListener('change', function () { renderValueSlot(); });
-    el('ar-op').addEventListener('change', function () { renderValueSlot(); });
+
+    function newCondition() {
+      return { field: (Adm.fields[0] ? Adm.fields[0].id : ''), op: '==', compare: 'value', value: '', field2: '' };
+    }
+
+    function addCondition() {
+      syncCondRows();
+      Adm.condRows.push(newCondition());
+      renderConditions();
+    }
+
+    function removeCondition(idx) {
+      syncCondRows();
+      if (Adm.condRows.length <= 1) return;
+      Adm.condRows.splice(idx, 1);
+      renderConditions();
+    }
+
+    el('ar-cond-add').addEventListener('click', addCondition);
+    el('ar-combinator').addEventListener('change', function () { Adm.combinator = el('ar-combinator').value; });
 
     function setRuleMode(mode) {
       el('ar-mode-simple').checked = mode === 'simple';
@@ -390,15 +690,16 @@
       el('ar-adv-wrap').classList.toggle('hidden', mode !== 'advanced');
     }
     el('ar-mode-simple').addEventListener('change', function () { setRuleMode('simple'); });
-    el('ar-mode-advanced').addEventListener('change', function () { setRuleMode('advanced'); });
+    el('ar-mode-advanced').addEventListener('change', function () {
+      // Jembatan: bawa kondisi Mode Sederhana ke JSON supaya bisa disempurnakan
+      // (mis. dibungkus roster_* / dibuat bersarang). Hanya bila valid.
+      syncCondRows();
+      var w = AdminLogic.buildSimpleGroup(Adm.combinator, Adm.condRows, fieldMeta);
+      if (w.ok) el('ar-json').value = JSON.stringify(w.when, null, 2);
+      setRuleMode('advanced');
+    });
 
-    // Kondisi 1-leaf sederhana (tanpa all/any/roster/field2) bisa dibuka di
-    // Mode Sederhana; selain itu Mode Lanjutan.
-    function isSimpleWhen(when) {
-      return when && typeof when.field === 'string' && !('field2' in when) &&
-        !('all' in when) && !('any' in when) &&
-        fieldMeta(when.field) !== null;
-    }
+    function isKnownField(id) { return fieldMeta(id) !== null; }
 
     function openRuleDialog(r) {
       Adm.editingR = r ? r.rule_id : null;
@@ -410,20 +711,26 @@
       el('ar-preview-result').classList.add('hidden');
       el('ar-preview-computed').classList.add('hidden');
       el('ar-preview-answers').value = '';
-      renderFieldSelect();
-      if (r && isSimpleWhen(r.when)) {
+
+      // Default Mode Sederhana: satu kondisi kosong.
+      Adm.combinator = 'all';
+      Adm.condRows = [newCondition()];
+      el('ar-json').value = '';
+
+      var cls = r ? AdminLogic.classifySimpleGroup(r.when, isKnownField) : null;
+      if (cls && cls.simple) {
+        Adm.combinator = cls.combinator;
+        Adm.condRows = cls.conditions;
         setRuleMode('simple');
-        el('ar-field').value = r.when.field;
-        el('ar-op').value = r.when.op;
-        renderValueSlot(r.when.value);
       } else if (r) {
-        setRuleMode('advanced');
+        // Rule lama yang nested/roster/field tak dikenal → Mode Lanjutan (JSON).
         el('ar-json').value = JSON.stringify(r.when, null, 2);
+        setRuleMode('advanced');
       } else {
         setRuleMode('simple');
-        el('ar-json').value = '';
-        renderValueSlot();
       }
+      el('ar-combinator').value = Adm.combinator;
+      renderConditions();
       UiFx.openDialog(el('ar-dialog'));
     }
 
@@ -432,11 +739,8 @@
 
     function currentWhen() {
       if (el('ar-mode-simple').checked) {
-        var valEl = el('ar-value-slot').firstChild;
-        return AdminLogic.buildSimpleWhen(
-          el('ar-field').value, el('ar-op').value,
-          valEl ? valEl.value : '', fieldMeta(el('ar-field').value)
-        );
+        syncCondRows();
+        return AdminLogic.buildSimpleGroup(Adm.combinator, Adm.condRows, fieldMeta);
       }
       return AdminLogic.parseAdvancedWhen(el('ar-json').value);
     }

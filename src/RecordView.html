@@ -1,7 +1,7 @@
 <section id="view-record" data-testid="record-view" class="view hidden max-w-md mx-auto px-4 py-6">
   <div class="flex items-center justify-between mb-3">
     <button id="record-back" data-testid="record-back" type="button"
-      class="h-11 px-3 rounded-lg text-sky-700 font-medium active:bg-sky-50">&larr; Kembali</button>
+      class="h-11 px-3 rounded-lg text-orange-700 font-medium active:bg-orange-50">&larr; Kembali</button>
     <span id="sync-indicator" data-testid="sync-indicator" data-state="idle"
       class="hidden text-xs font-medium px-2.5 py-1.5 rounded-full"></span>
   </div>
@@ -61,7 +61,7 @@
       </div>
 
       <div id="ppl-info" data-testid="ppl-info"
-        class="hidden rounded-xl bg-sky-50 border border-sky-200 p-4 text-sm space-y-1">
+        class="hidden rounded-xl bg-orange-50 border border-orange-200 p-4 text-sm space-y-1">
         <p class="text-slate-500">Petugas wilayah ini:</p>
         <p id="ppl-loading" class="hidden text-slate-400"><span class="spin"></span>Memuat petugas…</p>
         <div id="ppl-names" class="space-y-1">
@@ -74,6 +74,8 @@
     <hr class="border-slate-100">
 
     <p class="text-sm font-semibold text-slate-600">Kuesioner</p>
+    <!-- Roster anggota keluarga tampil PALING AWAL (roster lain tetap di bawah) -->
+    <div id="roster-container-top" class="space-y-5"></div>
     <div id="questions-container" class="space-y-4"></div>
     <div id="roster-container" class="space-y-5"></div>
 
@@ -87,12 +89,16 @@
     <p id="record-error" data-testid="record-error" class="hidden text-sm text-red-600"></p>
 
     <button id="record-save" data-testid="record-save" type="button"
-      class="w-full h-12 rounded-xl bg-sky-600 text-white text-base font-semibold active:bg-sky-700 disabled:opacity-50">
+      class="w-full h-12 rounded-xl bg-orange-600 text-white text-base font-semibold active:bg-orange-700 disabled:opacity-50">
       Simpan Sementara
     </button>
     <button id="record-submit" data-testid="record-submit" type="button"
       class="w-full h-12 rounded-xl bg-emerald-600 text-white text-base font-semibold active:bg-emerald-700 disabled:opacity-50">
       Submit &amp; Periksa Anomali
+    </button>
+    <button id="record-delete" data-testid="record-delete" type="button"
+      class="w-full h-12 rounded-xl border border-red-300 text-red-600 text-base font-semibold active:bg-red-50">
+      Hapus Record
     </button>
   </div>
 
@@ -106,10 +112,26 @@
         di perangkat ini.
       </p>
       <button id="exit-save" data-testid="exit-save" type="button"
-        class="w-full h-12 rounded-xl bg-sky-600 text-white font-semibold active:bg-sky-700">Simpan sementara &amp; keluar</button>
+        class="w-full h-12 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700">Simpan sementara &amp; keluar</button>
       <button id="exit-discard" data-testid="exit-discard" type="button"
         class="w-full h-12 rounded-xl border border-red-300 text-red-600 font-semibold active:bg-red-50">Buang perubahan</button>
       <button id="exit-cancel" data-testid="exit-cancel" type="button"
+        class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+    </div>
+  </div>
+
+  <!-- Dialog konfirmasi hapus record -->
+  <div id="delete-dialog" data-testid="delete-dialog"
+    class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
+    <div class="dlg-panel bg-white w-full max-w-md rounded-2xl p-5 space-y-3">
+      <h2 class="font-bold text-lg">Hapus record ini?</h2>
+      <p class="text-sm text-slate-500">
+        Record dihapus dari server dan dari perangkat ini. Tindakan ini tidak
+        bisa dibatalkan.
+      </p>
+      <button id="delete-confirm" data-testid="delete-confirm" type="button"
+        class="w-full h-12 rounded-xl bg-red-600 text-white font-semibold active:bg-red-700">Ya, hapus</button>
+      <button id="delete-cancel" data-testid="delete-cancel" type="button"
         class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
     </div>
   </div>
@@ -122,7 +144,7 @@
       <p id="anomaly-dialog-count" data-testid="anomaly-dialog-count" class="text-sm text-slate-500"></p>
       <ul id="anomaly-dialog-list" class="space-y-2"></ul>
       <button id="anomaly-done" data-testid="anomaly-done" type="button"
-        class="w-full h-12 rounded-xl bg-sky-600 text-white font-semibold active:bg-sky-700">Ke Dashboard</button>
+        class="w-full h-12 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700">Ke Dashboard</button>
       <button id="anomaly-close" data-testid="anomaly-close" type="button"
         class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Tetap di Kuesioner</button>
     </div>

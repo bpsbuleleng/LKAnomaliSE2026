@@ -108,8 +108,12 @@ test('CRUD pertanyaan: tambah → edit → reorder ↑ → nonaktifkan; kuesione
   await fa.getByTestId('aq-save').click();
   await expect(fa.getByTestId('aq-row-warna_pintu')).toContainText('Warna pintu rumah (revisi)');
 
-  // -- Reorder ↑ : tidak lagi di posisi terakhir --
-  await fa.getByTestId('aq-up-warna_pintu').click();
+  // -- Reorder: masuk mode Ubah Urutan, geser ↑ (staging), Simpan Urutan --
+  await fa.getByTestId('aq-reorder').click();
+  await expect(fa.getByTestId('aq-reorder-bar')).toBeVisible();
+  await fa.getByTestId('aq-up-warna_pintu').click(); // menata staging, belum ke server
+  await fa.getByTestId('aq-reorder-save').click();
+  await expect(fa.getByTestId('aq-reorder-bar')).toBeHidden(); // kembali ke mode normal
   await expect(fa.locator('#aq-list > div').last()).not.toHaveAttribute('data-testid', 'aq-row-warna_pintu');
   await expect(fa.getByTestId('aq-row-warna_pintu')).toBeVisible(); // masih ada, cuma pindah
 
@@ -121,7 +125,7 @@ test('CRUD pertanyaan: tambah → edit → reorder ↑ → nonaktifkan; kuesione
   await expect(fp.getByTestId('q-warna_pintu')).toBeVisible(); // field baru tampil ke PML
   await pickWilayah(fp);
   await fp.getByTestId('q-b1r13_1').fill('45');
-  await fp.getByTestId('q-b4r3a').selectOption('1');
+  await fp.getByTestId('q-b4r3a-opt-1').check();
   await fp.getByTestId('q-b4r5').fill('80');
   await fp.getByTestId('q-warna_pintu').fill('biru');
   await expect(fp.getByTestId('sync-indicator')).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
@@ -162,12 +166,12 @@ test('rule baru via UI + preview: preview TERPICU/TIDAK benar, submit PML beriku
   await fa.getByTestId('jenis-tab-keluarga').click();
   await expect(fa.getByTestId('ar-row-K1')).toBeVisible();
 
-  // -- Susun rule Mode Sederhana: b4r5 > 500 --
+  // -- Susun rule Mode Sederhana (1 kondisi): b4r5 > 500 --
   await fa.getByTestId('ar-add').click();
   await fa.getByTestId('ar-message').fill('UJI-E2E: luas bangunan tidak wajar (> 500 m²)');
-  await fa.getByTestId('ar-field').selectOption('b4r5');
-  await fa.getByTestId('ar-op').selectOption('>');
-  await fa.getByTestId('ar-value').fill('500');
+  await fa.getByTestId('ar-cond-field-0').selectOption('b4r5');
+  await fa.getByTestId('ar-cond-op-0').selectOption('>');
+  await fa.getByTestId('ar-cond-value-0').fill('500');
 
   // -- Preview pakai evaluator yang SAMA dengan submit --
   await fa.getByTestId('ar-preview-answers').fill('{"b4r5": 600}');
@@ -190,7 +194,7 @@ test('rule baru via UI + preview: preview TERPICU/TIDAK benar, submit PML beriku
   await expect(fp.getByTestId('q-b1r13_1')).toBeVisible();
   await pickWilayah(fp);
   await fp.getByTestId('q-b1r13_1').fill('45');
-  await fp.getByTestId('q-b4r3a').selectOption('1');
+  await fp.getByTestId('q-b4r3a-opt-1').check();
   await fp.getByTestId('q-b4r5').fill('600');
   await fp.getByTestId('record-submit').click();
   const dialogItems = fp.getByTestId('anomaly-dialog').getByTestId('anomaly-item');
@@ -199,6 +203,42 @@ test('rule baru via UI + preview: preview TERPICU/TIDAK benar, submit PML beriku
   await expect(dialogItems).toContainText('UJI-E2E: luas bangunan tidak wajar');
 
   await pml.close();
+});
+
+test('rule Mode Sederhana MULTI-KONDISI (DAN, 2 field): preview benar, tersimpan sbg all[], round-trip buka lagi tetap sederhana', async ({ page }) => {
+  const fa = await adminLogin(page);
+  await resetAll(fa);
+  await fa.getByTestId('jenis-tab-keluarga').click();
+  await expect(fa.getByTestId('ar-row-K1')).toBeVisible();
+
+  await fa.getByTestId('ar-add').click();
+  await fa.getByTestId('ar-message').fill('UJI-E2E multi: luas > 500 DAN umur KK < 50');
+  // Kondisi 1: b4r5 > 500
+  await fa.getByTestId('ar-cond-field-0').selectOption('b4r5');
+  await fa.getByTestId('ar-cond-op-0').selectOption('>');
+  await fa.getByTestId('ar-cond-value-0').fill('500');
+  // Tambah kondisi 2: b1r13_1 < 50 → kombinator DAN/ATAU muncul
+  await fa.getByTestId('ar-cond-add').click();
+  await expect(fa.getByTestId('ar-combinator')).toBeVisible();
+  await fa.getByTestId('ar-cond-field-1').selectOption('b1r13_1');
+  await fa.getByTestId('ar-cond-op-1').selectOption('<');
+  await fa.getByTestId('ar-cond-value-1').fill('50');
+
+  // Preview (evaluator server yang sama): DAN → hanya terpicu bila keduanya benar.
+  await fa.getByTestId('ar-preview-answers').fill('{"b4r5": 600, "b1r13_1": 45}');
+  await fa.getByTestId('ar-preview-run').click();
+  await expect(fa.getByTestId('ar-preview-result')).toContainText('TERPICU');
+  await fa.getByTestId('ar-preview-answers').fill('{"b4r5": 600, "b1r13_1": 70}');
+  await fa.getByTestId('ar-preview-run').click();
+  await expect(fa.getByTestId('ar-preview-result')).toContainText('TIDAK terpicu');
+
+  // Simpan → K100, lalu buka lagi: tetap Mode Sederhana dengan 2 kondisi utuh.
+  await fa.getByTestId('ar-save').click();
+  await expect(fa.getByTestId('ar-row-K100')).toBeVisible();
+  await fa.getByTestId('ar-edit-K100').click();
+  await expect(fa.getByTestId('ar-mode-simple')).toBeChecked();
+  await expect(fa.getByTestId('ar-cond-field-0')).toHaveValue('b4r5');
+  await expect(fa.getByTestId('ar-cond-field-1')).toHaveValue('b1r13_1');
 });
 
 test('SERVER-SIDE GUARD: panggilan langsung (console) SEMUA fungsi privileged dengan password salah/kosong/tanpa-argumen DITOLAK', async ({ page }) => {

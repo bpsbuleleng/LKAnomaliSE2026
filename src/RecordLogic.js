@@ -30,10 +30,30 @@ var RecordLogic = (function () {
     };
   }
 
+  /**
+   * Judul tampilan record di dashboard: keluarga = nama 2 anggota pertama
+   * roster ("NAMA1 / NAMA2"), usaha = nama usaha. Kosong kalau belum diisi —
+   * client menampilkan fallback wilayah.
+   */
+  function judulRecord(jenis, answers) {
+    answers = answers || {};
+    if (jenis === 'keluarga') {
+      var rows = (answers.roster && answers.roster.anggota_keluarga) || [];
+      var names = [];
+      for (var i = 0; i < rows.length && names.length < 2; i++) {
+        var n = s(rows[i] && rows[i].b1r6_n).trim();
+        if (n) names.push(n);
+      }
+      return names.join(' / ');
+    }
+    return s(answers.nama_usaha).trim();
+  }
+
   function summarize(rec) {
     var w = rec.wilayah || {};
     return {
       record_id: rec.record_id, jenis: rec.jenis, status: rec.status,
+      judul: judulRecord(rec.jenis, rec.answers),
       idsubsls: s(w.idsubsls), nmkec: s(w.nmkec), nmdesa: s(w.nmdesa),
       nmsls: s(w.nmsls), kdsubsls: s(w.kdsubsls),
       updated_at: rec.updated_at
@@ -91,7 +111,18 @@ var RecordLogic = (function () {
       for (var j = 0; j < records.length; j++) {
         if (records[j].record_id === input.record_id) { idx = j; break; }
       }
-      if (idx === -1) return { ok: false, error: 'NOT_FOUND' };
+      if (idx === -1) {
+        // RECOVERY: record_id dikenal client tapi barisnya tidak ada di server
+        // (mis. terhapus admin/reset). Draft di perangkat PML adalah satu-satunya
+        // salinan datanya — buat ulang dengan id yang SAMA alih-alih menolak,
+        // supaya data tidak terkunci selamanya di IndexedDB browser.
+        var revived = {
+          record_id: input.record_id, pml_email: norm, jenis: input.jenis,
+          status: 'draft', wilayah: wilayah, answers: input.answers || {},
+          anomalies: [], created_at: nowIso, updated_at: nowIso
+        };
+        return { ok: true, records: records.concat([revived]), record_id: revived.record_id, updated_at: nowIso };
+      }
       if (normEmail(records[idx].pml_email) !== norm) return { ok: false, error: 'FORBIDDEN' };
       var updated = {};
       Object.keys(records[idx]).forEach(function (k) { updated[k] = records[idx][k]; });
@@ -113,12 +144,30 @@ var RecordLogic = (function () {
     return { ok: true, records: records.concat([rec]), record_id: newId, updated_at: nowIso };
   }
 
+  /** Hapus record milik sendiri. Records = data PML sendiri, boleh hard-delete
+   *  (beda dengan Questions/Rules yang wajib soft-delete). */
+  function applyDeleteRecord(records, pmlEmail, recordId) {
+    var norm = normEmail(pmlEmail);
+    var found = null;
+    for (var i = 0; i < records.length; i++) {
+      if (records[i].record_id === recordId) { found = records[i]; break; }
+    }
+    if (!found) return { ok: false, error: 'NOT_FOUND' };
+    if (normEmail(found.pml_email) !== norm) return { ok: false, error: 'FORBIDDEN' };
+    return {
+      ok: true, record_id: recordId,
+      records: records.filter(function (r) { return r.record_id !== recordId; })
+    };
+  }
+
   return {
     buildWilayahSnapshot: buildWilayahSnapshot,
+    judulRecord: judulRecord,
     summarize: summarize,
     listRecordsFor: listRecordsFor,
     getRecordFor: getRecordFor,
-    applySaveDraft: applySaveDraft
+    applySaveDraft: applySaveDraft,
+    applyDeleteRecord: applyDeleteRecord
   };
 })();
 

@@ -2,10 +2,11 @@
  * sheet-admin — jalankan fungsi maintenance server dari terminal lewat
  * Playwright + google.script.run (transport yang sama dengan aplikasi).
  *
- * Pakai:  node scripts/sheet-admin.js status        → adminSheetStatus
- *         node scripts/sheet-admin.js setup         → adminSetupSheets (buat tab + seed yang kosong)
- *         node scripts/sheet-admin.js reset-records → kosongkan tab Records (testing!)
- *         node scripts/sheet-admin.js reset-config  → Questions/Rules kembali ke baseline (testing!)
+ * Pakai:  node scripts/sheet-admin.js status         → adminSheetStatus
+ *         node scripts/sheet-admin.js setup          → adminSetupSheets (buat tab + seed yang kosong)
+ *         node scripts/sheet-admin.js backup-records → salin tab Records ke tab backup ber-timestamp
+ *         node scripts/sheet-admin.js reset-records  → kosongkan tab Records (testing! backup dulu)
+ *         node scripts/sheet-admin.js reset-config   → Questions/Rules kembali ke baseline (testing!)
  * Env:    EXEC_URL (default deployment tetap), ADMIN_PW (default pilot).
  */
 const { chromium } = require('@playwright/test');
@@ -17,12 +18,13 @@ const ADMIN_PW = process.env.ADMIN_PW || 'admin5108';
 const FN = {
   status: 'adminSheetStatus',
   setup: 'adminSetupSheets',
+  'backup-records': 'adminBackupRecords',
   'reset-records': 'resetRecords',
   'reset-config': 'resetConfig'
 }[process.argv[2] || 'status'];
 
 if (!FN) {
-  console.error('Perintah tidak dikenal. Pakai: status | setup | reset-records | reset-config');
+  console.error('Perintah tidak dikenal. Pakai: status | setup | backup-records | reset-records | reset-config');
   process.exit(2);
 }
 

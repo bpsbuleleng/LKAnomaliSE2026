@@ -63,7 +63,7 @@ test('submit keluarga: required kosong ditolak + field ditunjuk → submit → d
   // ---- (2) Isi lengkap kecuali required di BARIS roster → masih ditolak per baris ----
   await pickWilayah(f);
   await f.getByTestId('q-b1r13_1').fill('8'); // sengaja <10 utk memicu K2 nanti
-  await f.getByTestId('q-b4r3a').selectOption('1'); // milik sendiri
+  await f.getByTestId('q-b4r3a-opt-1').check(); // milik sendiri
   await f.getByTestId('q-b4r5').fill('80');
   await f.getByTestId('roster-add-anggota_keluarga').click();
   await f.getByTestId('q-b1r6_n-0').fill('KETUT SUKARDI'); // hubungan (b1r8_n) dibiarkan kosong
@@ -76,7 +76,7 @@ test('submit keluarga: required kosong ditolak + field ditunjuk → submit → d
   // Item anomali juga tampil di panel inline "hasil pemeriksaan terakhir",
   // jadi assert HARUS di-scope ke dialog.
   const dialogItems = f.getByTestId('anomaly-dialog').getByTestId('anomaly-item');
-  await f.getByTestId('q-b1r8_n-0').selectOption('1');
+  await f.getByTestId('q-b1r8_n-0-opt-1').check();
   await f.getByTestId('record-submit').click();
   await expect(f.getByTestId('anomaly-dialog')).toBeVisible();
   await expect(dialogItems).toHaveCount(1);
@@ -109,9 +109,9 @@ test('submit usaha: computed fields server-side memicu multi anomali (U2 + U4)',
 
   await pickWilayah(f);
   await f.getByTestId('q-nama_usaha').fill('WARUNG SEGARA');
-  await f.getByTestId('q-r11a').selectOption('2');   // CV
-  await f.getByTestId('q-r13b1').selectOption('3');  // jasa
-  await f.getByTestId('q-r22').selectOption('1');    // ada pembukuan
+  await f.getByTestId('q-r11a-opt-2').check();   // CV
+  await f.getByTestId('q-r13b1-opt-3').check();  // jasa
+  await f.getByTestId('q-r22-opt-1').check();    // ada pembukuan
   await f.getByTestId('q-r25').fill('2019');
   await f.getByTestId('q-r26b').fill('50000000');    // total biaya 50jt
   await f.getByTestId('q-r27c').fill('40000000');    // pendapatan < biaya → U2; rasio 0,8 → U4

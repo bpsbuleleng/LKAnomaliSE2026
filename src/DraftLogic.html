@@ -93,6 +93,25 @@ var DraftLogic = (function () {
   }
 
   /**
+   * Judul kartu dashboard (padanan CLIENT dari RecordLogic.judulRecord di
+   * server — dua-duanya harus menghasilkan string yang sama): keluarga =
+   * "NAMA1 / NAMA2" dari roster, usaha = nama usaha, kosong = fallback wilayah.
+   */
+  function judulRecord(jenis, answers) {
+    answers = answers || {};
+    if (jenis === 'keluarga') {
+      var rows = (answers.roster && answers.roster.anggota_keluarga) || [];
+      var names = [];
+      for (var i = 0; i < rows.length && names.length < 2; i++) {
+        var n = String(rows[i] && rows[i].b1r6_n != null ? rows[i].b1r6_n : '').trim();
+        if (n) names.push(n);
+      }
+      return names.join(' / ');
+    }
+    return String(answers.nama_usaha != null ? answers.nama_usaha : '').trim();
+  }
+
+  /**
    * Gabungkan daftar record server + draft lokal untuk dashboard.
    * - Record server yang punya draft lokal dirty → ditandai unsynced.
    * - Draft lokal tanpa record server (belum pernah sync / server tak
@@ -112,6 +131,8 @@ var DraftLogic = (function () {
       return {
         key: r.record_id, record_id: r.record_id, localId: d ? d.localId : null,
         jenis: r.jenis, status: r.status, unsynced: dirty,
+        // Draft lokal dirty lebih baru dari server → judul dari jawaban lokal.
+        judul: dirty ? judulRecord(d.jenis, d.answers) : (r.judul || ''),
         updated: dirty ? d.updatedLocal : r.updated_at,
         idsubsls: r.idsubsls, nmdesa: r.nmdesa, nmsls: r.nmsls, kdsubsls: r.kdsubsls
       };
@@ -122,6 +143,7 @@ var DraftLogic = (function () {
       items.push({
         key: d.localId, record_id: d.record_id || null, localId: d.localId,
         jenis: d.jenis, status: 'draft', unsynced: isDirty(d),
+        judul: judulRecord(d.jenis, d.answers),
         updated: d.updatedLocal, idsubsls: d.idsubsls,
         nmdesa: '', nmsls: '', kdsubsls: ''
       });
@@ -135,6 +157,7 @@ var DraftLogic = (function () {
   return {
     newDraft: newDraft,
     fromServerRecord: fromServerRecord,
+    judulRecord: judulRecord,
     isDirty: isDirty,
     touch: touch,
     markSynced: markSynced,

@@ -30,6 +30,26 @@ function adminSheetStatus(adminPassword) {
 }
 
 /**
+ * Salin tab Records ke tab backup ber-timestamp di spreadsheet yang sama.
+ * WAJIB dijalankan sebelum operasi destruktif apa pun (reset e2e, dsb) begitu
+ * ada data produksi. Tab backup bisa dihapus manual kalau sudah tidak perlu.
+ */
+function adminBackupRecords(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var b = SheetDb.backupRecords();
+    return { ok: true, backupSheet: b.sheet, dataRows: b.dataRows };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
  * Ringkasan kesehatan relasi Petugas ↔ Alokasi Wilayah: jumlah PML, PML yang
  * belum punya alokasi, dan email PML di alokasi yang tak dikenal di Petugas.
  * Read-only — dipakai verifikasi kelengkapan data & memilih akun uji.

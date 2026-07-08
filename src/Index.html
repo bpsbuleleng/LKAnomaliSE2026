@@ -15,7 +15,7 @@
   <!-- Overlay loading global: dipakai proses blocking singkat (buka record) -->
   <div id="app-loading" class="hidden fixed inset-0 z-[60] bg-white/70 backdrop-blur-sm flex items-center justify-center">
     <div class="flex flex-col items-center gap-3 anim-in">
-      <span class="spin text-sky-600" style="width:2.25rem;height:2.25rem;border-width:3px;margin:0"></span>
+      <span class="spin text-orange-600" style="width:2.25rem;height:2.25rem;border-width:3px;margin:0"></span>
       <p id="app-loading-text" class="text-sm font-medium text-slate-600">Memuat…</p>
     </div>
   </div>
@@ -155,27 +155,42 @@
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.setAttribute('data-testid', 'record-card');
-      btn.className = 'w-full text-left bg-white rounded-xl shadow p-4 active:bg-sky-50';
+      btn.className = 'w-full text-left bg-white rounded-xl shadow p-4 active:bg-orange-50';
       var wilayah = item.idsubsls
         ? (item.nmdesa ? item.nmdesa + ' · ' + item.nmsls + ' · Sub-SLS ' + item.kdsubsls
                        : 'Sub-SLS ' + item.idsubsls)
         : 'Wilayah belum dipilih';
-      var jenisCls = item.jenis === 'usaha' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700';
-      var statusCls = item.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700';
+      var jenisCls = item.jenis === 'usaha' ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700';
+      var statusCls = item.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
       var badges =
         '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + jenisCls + '">' + item.jenis + '</span>' +
         '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + statusCls + '">' + item.status + '</span>';
       if (item.unsynced) {
         badges += '<span data-testid="unsynced-badge" class="text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">belum sync</span>';
       }
+      // Judul: keluarga = nama anggota 1 / anggota 2, usaha = nama usaha.
+      // Belum ada nama → baris judul memakai wilayah (seperti sebelumnya).
       btn.innerHTML =
         '<div class="flex flex-wrap gap-2 mb-1">' + badges + '</div>' +
-        '<p class="text-sm font-medium"></p>' +
+        '<p data-testid="record-card-title" class="text-sm font-semibold"></p>' +
+        '<p data-testid="record-card-wilayah" class="text-xs text-slate-500 mt-0.5"></p>' +
         '<p class="text-xs text-slate-400 mt-1">Diubah: ' + String(item.updated || '').replace('T', ' ').slice(0, 16) + '</p>';
-      btn.querySelector('p').textContent = wilayah;
+      var titleEl = btn.querySelector('[data-testid="record-card-title"]');
+      var wilEl = btn.querySelector('[data-testid="record-card-wilayah"]');
+      if (item.judul) {
+        titleEl.textContent = item.judul;
+        wilEl.textContent = wilayah;
+      } else {
+        titleEl.textContent = wilayah;
+        wilEl.remove();
+      }
       btn.addEventListener('click', function () {
-        if (item.localId) openLocalDraft(item.localId);
-        else openExistingRecord(item.record_id);
+        // Server = sumber kebenaran saat draft lokal sudah bersih (tak ada
+        // editan belum terkirim); lokal menang HANYA saat masih dirty atau
+        // belum pernah punya record server.
+        if (item.record_id && !item.unsynced) openExistingRecord(item.record_id, item.localId);
+        else if (item.localId) openLocalDraft(item.localId);
+        else openExistingRecord(item.record_id, null);
       });
       return btn;
     }
@@ -202,17 +217,25 @@
       });
     }
 
-    function openExistingRecord(recordId) {
+    function openExistingRecord(recordId, fallbackLocalId) {
       showLoading('Membuka record…');
       gsRun('getRecord', App.state.pml.email, recordId)
         .then(function (res) {
           hideLoading();
-          if (res && res.ok) openQuestionnaire(DraftLogic.fromServerRecord(res.record), res.record.wilayah);
-          else UiFx.toast(SAVE_ERROR_MESSAGES[res && res.error] || 'Gagal membuka record.');
+          if (res && res.ok) {
+            openQuestionnaire(DraftLogic.fromServerRecord(res.record), res.record.wilayah);
+          } else if (fallbackLocalId) {
+            // Record server hilang/tak terbaca tapi ada salinan lokal —
+            // buka salinan lokal; sync berikutnya membuatnya lagi di server.
+            openLocalDraft(fallbackLocalId);
+          } else {
+            UiFx.toast(SAVE_ERROR_MESSAGES[res && res.error] || 'Gagal membuka record.');
+          }
         })
         .catch(function () {
           hideLoading();
-          UiFx.toast('Gagal membuka record — periksa koneksi lalu coba lagi.');
+          if (fallbackLocalId) openLocalDraft(fallbackLocalId);
+          else UiFx.toast('Gagal membuka record — periksa koneksi lalu coba lagi.');
         });
     }
 
@@ -341,7 +364,9 @@
       // Skeleton selagi pertanyaan dimuat (langsung terlihat saat view masuk).
       el('questions-container').innerHTML =
         UiFx.skeletonList(4, 'h-12') + '<div class="skel h-24 rounded-xl" aria-hidden="true"></div>';
+      el('roster-container-top').innerHTML = '';
       el('roster-container').innerHTML = '';
+      el('record-delete').classList.toggle('hidden', !draft.record_id && draft.rev === 0);
       refreshSyncIndicator();
       showView('record');
 
@@ -373,8 +398,10 @@
 
     function renderQuestionnaire(questions, draft) {
       var qc = el('questions-container');
+      var rcTop = el('roster-container-top');
       var rc = el('roster-container');
       qc.innerHTML = '';
+      rcTop.innerHTML = '';
       rc.innerHTML = '';
       var flat = [];
       var groups = {};
@@ -393,12 +420,50 @@
           afterEdit();
         }, ''));
       });
-      groupOrder.forEach(function (g) { rc.appendChild(rosterSection(g, groups[g])); });
+      // Roster anggota keluarga ditaruh di AWAL kuesioner; roster lain
+      // (meteran_listrik) tetap di bawah dekat pertanyaan pemicunya (b4r14a).
+      groupOrder.forEach(function (g) {
+        var target = g === 'anggota_keluarga' ? rcTop : rc;
+        target.appendChild(rosterSection(g, groups[g]));
+      });
+      UiFx.staggerIn(rcTop.children, 25);
       UiFx.staggerIn(qc.children, 25);
       UiFx.staggerIn(rc.children, 25);
     }
 
-    var INPUT_CLS = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500';
+    var INPUT_CLS = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-orange-500';
+
+    /**
+     * Grup radio untuk pertanyaan kategorik. Container ber-testid
+     * 'q-<id><suffix>' (dipasang caller); tiap opsi 'q-<id><suffix>-opt-<value>'.
+     * onChange menerima value bertipe ASLI dari options (angka utk kode).
+     */
+    function radioGroup(q, value, onChange, testidSuffix) {
+      var box = document.createElement('div');
+      box.className = 'space-y-2 rounded-xl';
+      var name = 'rq-' + q.question_id + (testidSuffix || '');
+      (q.options || []).forEach(function (o) {
+        var lbl = document.createElement('label');
+        lbl.className = 'flex items-center gap-3 min-h-[44px] px-3 py-2.5 rounded-xl border border-slate-300 bg-white cursor-pointer transition-colors has-[:checked]:border-orange-500 has-[:checked]:bg-orange-50 active:bg-orange-50';
+        var r = document.createElement('input');
+        r.type = 'radio';
+        r.name = name;
+        r.value = String(o.value);
+        r.className = 'w-5 h-5 accent-orange-600 shrink-0';
+        r.setAttribute('data-testid', 'q-' + q.question_id + (testidSuffix || '') + '-opt-' + o.value);
+        if (value !== undefined && value !== null && value !== '' && String(value) === String(o.value)) {
+          r.checked = true;
+        }
+        r.addEventListener('change', function () { if (r.checked) onChange(o.value); });
+        var t = document.createElement('span');
+        t.className = 'text-base leading-snug';
+        t.textContent = o.label;
+        lbl.appendChild(r);
+        lbl.appendChild(t);
+        box.appendChild(lbl);
+      });
+      return box;
+    }
 
     function fieldElement(q, value, onChange, testidSuffix) {
       var wrap = document.createElement('div');
@@ -409,17 +474,10 @@
 
       var input;
       if (q.type === 'select') {
-        input = document.createElement('select');
-        input.className = INPUT_CLS;
-        input.appendChild(new Option('— pilih —', ''));
-        (q.options || []).forEach(function (o) { input.appendChild(new Option(o.label, String(o.value))); });
-        if (value !== undefined && value !== null && value !== '') input.value = String(value);
-        input.addEventListener('change', function () {
-          var raw = input.value;
-          var typed = raw; // simpan value bertipe asli (angka utk kode kategorik)
-          (q.options || []).forEach(function (o) { if (String(o.value) === raw) typed = o.value; });
-          onChange(raw === '' ? '' : typed);
-        });
+        // Kategorik = RADIO BUTTON (bukan dropdown) — semua opsi langsung
+        // terlihat & mudah disentuh. Dropdown hanya untuk cascading wilayah
+        // (SearchableSelect), bukan lewat sini.
+        input = radioGroup(q, value, onChange, testidSuffix);
       } else if (q.type === 'textarea') {
         input = document.createElement('textarea');
         input.rows = 3;
@@ -482,7 +540,7 @@
       var addBtn = document.createElement('button');
       addBtn.type = 'button';
       addBtn.setAttribute('data-testid', 'roster-add-' + group);
-      addBtn.className = 'w-full h-12 rounded-xl border border-dashed border-sky-400 text-sky-700 font-medium active:bg-sky-50';
+      addBtn.className = 'w-full h-12 rounded-xl border border-dashed border-orange-400 text-orange-700 font-medium active:bg-orange-50';
       addBtn.textContent = '+ Tambah ' + rosterTitle(group);
       addBtn.addEventListener('click', function () {
         DraftLogic.addRosterRow(Q.draft, group, nowIso());
@@ -563,6 +621,8 @@
     // Dipanggil di TIAP edit: tulis lokal SEGERA (debounced), lalu coba server.
     function afterEdit() {
       refreshSyncIndicator();
+      // Begitu ada isian, record sudah "ada" (minimal lokal) → bisa dihapus.
+      el('record-delete').classList.remove('hidden');
       clearTimeout(Q.debounceTimer);
       Q.debounceTimer = setTimeout(persistLocalThenSync, 600);
     }
@@ -712,6 +772,61 @@
       DraftStore.remove(d.localId).then(function () { enterDashboard(); });
     });
 
+    // ==== HAPUS RECORD (server + salinan lokal, dengan konfirmasi) ====
+
+    // Bersihkan SEMUA salinan lokal record ini. Record yang dibuka dari server
+    // punya localId = record_id, sementara draft asal pembuatannya tersimpan
+    // dengan kunci 'L-…' — dua-duanya harus hilang, kalau tidak kartu "hantu"
+    // muncul lagi di dashboard dari IndexedDB.
+    function removeDraftEverywhere(d) {
+      return DraftStore.getAll(App.state.pml.email).then(function (drafts) {
+        var targets = (drafts || []).filter(function (x) {
+          return x.localId === d.localId || (d.record_id && x.record_id === d.record_id);
+        });
+        if (!targets.length) return DraftStore.remove(d.localId);
+        return Promise.all(targets.map(function (x) { return DraftStore.remove(x.localId); }));
+      });
+    }
+
+    el('record-delete').addEventListener('click', function () {
+      UiFx.openDialog(el('delete-dialog'));
+    });
+    el('delete-cancel').addEventListener('click', function () {
+      UiFx.closeDialog(el('delete-dialog'));
+    });
+
+    el('delete-confirm').addEventListener('click', function doDelete() {
+      var d = Q.draft;
+      if (!d) return;
+      UiFx.closeDialog(el('delete-dialog'));
+      showLoading('Menghapus record…');
+      // Tunggu sync yang sedang jalan selesai dulu — kalau tidak, respons
+      // saveDraft yang telat bisa menghidupkan lagi record yang baru dihapus.
+      if (Q.inFlight) { setTimeout(doDelete, 400); return; }
+      stopSyncTimers();
+      var serverP = d.record_id
+        ? gsRun('deleteRecord', App.state.pml.email, d.record_id)
+        : Promise.resolve({ ok: true }); // draft lokal murni: tak ada baris server
+      serverP
+        .then(function (res) {
+          // NOT_FOUND = sudah tidak ada di server — teruskan hapus lokal.
+          if (!(res && (res.ok || res.error === 'NOT_FOUND'))) {
+            hideLoading();
+            showRecordError(SAVE_ERROR_MESSAGES[res && res.error] || 'Gagal menghapus record di server.');
+            return;
+          }
+          return removeDraftEverywhere(d).then(function () {
+            hideLoading();
+            UiFx.toast('Record dihapus.');
+            enterDashboard();
+          });
+        })
+        .catch(function () {
+          hideLoading();
+          showRecordError('Menghapus butuh koneksi ke server — data tidak diubah. Coba lagi saat online.');
+        });
+    });
+
     // ==== SUBMIT & DAFTAR ANOMALI ====
     // Dua hal BERBEDA: validasi isian (required, blocking, tunjuk field) vs
     // rule anomali (jalan SETELAH submit, laporan, tidak memblokir).
@@ -720,8 +835,10 @@
       var chip = el('record-status-chip');
       var st = (Q.draft && Q.draft.status) || 'draft';
       chip.textContent = st;
+      // draft = amber, submitted = emerald (identik dengan badge dashboard;
+      // amber/orange dihindari untuk submitted supaya tak rancu tema orange).
       chip.className = 'text-xs font-semibold px-2 py-1 rounded-full ' +
-        (st === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700');
+        (st === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700');
     }
 
     var SEVERITY_CLS = {

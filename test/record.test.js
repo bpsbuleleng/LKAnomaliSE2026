@@ -59,11 +59,24 @@ test('update draft sendiri: wilayah & updated_at berubah, created_at tetap, tida
   assert.equal(base[0].wilayah.nmdesa, 'Sumberkima');
 });
 
-test('update record PML lain → FORBIDDEN; record tak ada → NOT_FOUND', () => {
+test('update record PML lain → FORBIDDEN', () => {
   const base = createDraft([], KADEK, { jenis: 'usaha' }, assignedKadek, T1, 'R-1').records;
   const assignedKetut = WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, KETUT);
   assert.equal(RecordLogic.applySaveDraft(base, KETUT, { record_id: 'R-1', jenis: 'usaha' }, assignedKetut, T2, 'x').error, 'FORBIDDEN');
-  assert.equal(RecordLogic.applySaveDraft(base, KADEK, { record_id: 'R-99', jenis: 'usaha' }, assignedKadek, T2, 'x').error, 'NOT_FOUND');
+});
+
+test('RECOVERY: record_id dikenal client tapi tak ada di server → dibuat ulang dgn id SAMA (bukan NOT_FOUND)', () => {
+  // Skenario nyata: baris Records terhapus (reset/admin) padahal draft masih
+  // hidup di IndexedDB browser PML — sync berikutnya harus menyelamatkan data.
+  const res = RecordLogic.applySaveDraft([], KADEK,
+    { record_id: 'R-hilang', jenis: 'keluarga', idsubsls: '5108010002000101', answers: { b4r5: 80 } },
+    assignedKadek, T2, 'R-IGNORED');
+  assert.equal(res.ok, true);
+  assert.equal(res.record_id, 'R-hilang'); // id lama dipertahankan
+  assert.equal(res.records.length, 1);
+  assert.equal(res.records[0].status, 'draft');
+  assert.deepEqual(res.records[0].answers, { b4r5: 80 });
+  assert.equal(res.records[0].wilayah.kdkec, '010');
 });
 
 test('listRecordsFor: hanya milik sendiri, urut terbaru dulu, bentuk summary', () => {
@@ -76,11 +89,36 @@ test('listRecordsFor: hanya milik sendiri, urut terbaru dulu, bentuk summary', (
   assert.equal(list.length, 2);
   assert.equal(list[0].record_id, 'R-2'); // terbaru dulu
   assert.deepEqual(list[0], {
-    record_id: 'R-2', jenis: 'keluarga', status: 'draft',
+    record_id: 'R-2', jenis: 'keluarga', status: 'draft', judul: '',
     idsubsls: '5108010002000101', nmkec: 'Gerokgak', nmdesa: 'Sumberkima',
     nmsls: 'Banjar Dinas Kertha Kusuma', kdsubsls: '01', updated_at: T2
   });
   assert.equal(RecordLogic.listRecordsFor(records, KETUT).length, 1);
+});
+
+test('judulRecord: keluarga = 2 nama pertama roster " / ", usaha = nama_usaha, kosong = ""', () => {
+  assert.equal(RecordLogic.judulRecord('keluarga', { roster: { anggota_keluarga: [
+    { b1r6_n: 'KETUT ADI' }, { b1r6_n: 'NI LUH SARI' }, { b1r6_n: 'KOMANG TRI' }
+  ] } }), 'KETUT ADI / NI LUH SARI');
+  assert.equal(RecordLogic.judulRecord('keluarga', { roster: { anggota_keluarga: [
+    { b1r6_n: '  ' }, { b1r6_n: 'NI LUH SARI' } // nama kosong dilewati
+  ] } }), 'NI LUH SARI');
+  assert.equal(RecordLogic.judulRecord('keluarga', {}), '');
+  assert.equal(RecordLogic.judulRecord('usaha', { nama_usaha: ' WARUNG SEGARA ' }), 'WARUNG SEGARA');
+  assert.equal(RecordLogic.judulRecord('usaha', {}), '');
+});
+
+test('applyDeleteRecord: milik sendiri terhapus; milik orang FORBIDDEN; tak ada NOT_FOUND', () => {
+  let records = createDraft([], KADEK, { jenis: 'usaha' }, assignedKadek, T1, 'R-1').records;
+  records = createDraft(records, KADEK, { jenis: 'keluarga' }, assignedKadek, T2, 'R-2').records;
+
+  const res = RecordLogic.applyDeleteRecord(records, KADEK, 'R-1');
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.records.map((r) => r.record_id), ['R-2']);
+  assert.equal(records.length, 2); // input tidak dimutasi
+
+  assert.equal(RecordLogic.applyDeleteRecord(records, KETUT, 'R-1').error, 'FORBIDDEN');
+  assert.equal(RecordLogic.applyDeleteRecord(records, KADEK, 'R-99').error, 'NOT_FOUND');
 });
 
 test('getRecordFor: milik sendiri ok, milik orang FORBIDDEN, tak ada NOT_FOUND', () => {

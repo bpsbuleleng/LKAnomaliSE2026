@@ -80,13 +80,13 @@ test('alur normal: isi (flat + roster) → auto-sync → simpan → buka lagi te
 
   await pickWilayah(f);
   await f.getByTestId('q-b1r13_1').fill('45');
-  await f.getByTestId('q-b4r3a').selectOption('1');
+  await f.getByTestId('q-b4r3a-opt-1').check(); // kategorik = radio sejak revisi UX
   await f.getByTestId('q-b4r5').fill('120');
 
   // Roster: tambah 2 anggota, hapus 1
   await f.getByTestId('roster-add-anggota_keluarga').click();
   await f.getByTestId('q-b1r6_n-0').fill('KETUT ADI');
-  await f.getByTestId('q-b1r8_n-0').selectOption('1');
+  await f.getByTestId('q-b1r8_n-0-opt-1').check();
   await f.getByTestId('roster-add-anggota_keluarga').click();
   await f.getByTestId('q-b1r6_n-1').fill('SALAH KETIK');
   await f.getByTestId('roster-remove-anggota_keluarga-1').click();
@@ -97,18 +97,53 @@ test('alur normal: isi (flat + roster) → auto-sync → simpan → buka lagi te
   // Auto-sync jalan tanpa tombol manual
   await expect(syncIndicator(f)).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
 
-  // Simpan manual → dashboard → buka lagi → nilai ter-prefill
+  // Simpan manual → dashboard: judul kartu = nama anggota pertama roster
   await f.getByTestId('record-save').click();
   await expect(f.getByTestId('dashboard-view')).toBeVisible();
   await expect(f.getByTestId('record-card')).toHaveCount(1);
+  await expect(f.getByTestId('record-card-title')).toHaveText('KETUT ADI');
+
+  // Buka lagi → nilai ter-prefill (radio tercentang, roster utuh)
   await f.getByTestId('record-card').click();
   await expect(f.getByTestId('record-view')).toBeVisible();
   await expect(f.getByTestId('q-b1r13_1')).toHaveValue('45');
-  await expect(f.getByTestId('q-b4r3a')).toHaveValue('1');
+  await expect(f.getByTestId('q-b4r3a-opt-1')).toBeChecked();
   await expect(f.getByTestId('q-b4r5')).toHaveValue('120');
   await expect(f.getByTestId('q-b1r6_n-0')).toHaveValue('KETUT ADI');
   await expect(f.getByTestId('roster-row-anggota_keluarga-1')).toHaveCount(0);
   await expect(f.getByTestId('roster-count-anggota_keluarga')).toHaveText('1 baris');
+});
+
+test('hapus record: konfirmasi → hilang dari dashboard, dari server, dan dari IndexedDB', async ({ page }) => {
+  const f = await login(page, KADEK);
+  await resetRecords(f);
+  await newRecord(f, 'keluarga');
+  await pickWilayah(f);
+  await f.getByTestId('q-b1r13_1').fill('33');
+  await expect(syncIndicator(f)).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
+  await f.getByTestId('record-save').click();
+  await expect(f.getByTestId('record-card')).toHaveCount(1);
+
+  // Buka → hapus dengan konfirmasi
+  await f.getByTestId('record-card').click();
+  await expect(f.getByTestId('record-delete')).toBeVisible();
+  await f.getByTestId('record-delete').click();
+  await expect(f.getByTestId('delete-dialog')).toBeVisible();
+  await f.getByTestId('delete-confirm').click();
+  await expect(f.getByTestId('dashboard-view')).toBeVisible();
+  await expect(f.getByTestId('record-card')).toHaveCount(0);
+  await expect(f.getByTestId('record-empty')).toBeVisible();
+
+  // Muat ulang halaman (state client bersih): server & IndexedDB dua-duanya
+  // kosong → dashboard tetap kosong, tidak ada "record hantu".
+  await page.goto(EXEC_URL);
+  const f2 = app(page);
+  await f2.getByTestId('login-email').fill(KADEK);
+  await f2.getByTestId('login-password').fill('cobaapp');
+  await f2.getByTestId('login-submit').click();
+  await expect(f2.getByTestId('dashboard-view')).toBeVisible();
+  await expect(f2.getByTestId('record-empty')).toBeVisible();
+  await expect(f2.getByTestId('record-card')).toHaveCount(0);
 });
 
 test('OFFLINE: data selamat di IndexedDB + indikator belum-sync → online → auto-sync ke server', async ({ page, context }) => {

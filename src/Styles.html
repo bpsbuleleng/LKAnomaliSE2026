@@ -112,6 +112,20 @@ input, select, textarea { transition: border-color .15s ease, box-shadow .15s ea
 /* Daftar yang sedang menunggu hasil mutasi server (halaman admin) */
 .busy-dim { opacity: .55; pointer-events: none; transition: opacity .2s ease; }
 
+/* ---- Reorder (drag & drop) pertanyaan di halaman admin ----
+   Handle = titik pegang; touch-action:none supaya sentuh di handle memulai
+   drag (bukan menggulung halaman). Baris tetap boleh digulung (pan-y). */
+.reorder-row { touch-action: pan-y; }
+.reorder-row .drag-handle { touch-action: none; cursor: grab; }
+.reorder-row.dragging {
+  position: relative;
+  z-index: 30;
+  cursor: grabbing;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .18);
+  opacity: .97;
+}
+.reorder-row.dragging .drag-handle { cursor: grabbing; }
+
 /* ---- Hormati preferensi kurangi gerakan ---- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

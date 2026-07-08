@@ -110,6 +110,25 @@ test('mergeDashboard: server bersih + lokal dirty + lokal-belum-pernah-sync', ()
   assert.equal(l7.record_id, null);
 });
 
+test('judulRecord (client) & mergeDashboard.judul: dirty pakai jawaban lokal, bersih pakai judul server', () => {
+  assert.equal(DraftLogic.judulRecord('keluarga', { roster: { anggota_keluarga: [
+    { b1r6_n: 'A' }, { b1r6_n: 'B' }, { b1r6_n: 'C' }
+  ] } }), 'A / B');
+  assert.equal(DraftLogic.judulRecord('usaha', { nama_usaha: 'WARUNG' }), 'WARUNG');
+
+  const server = [{ record_id: 'R-1', jenis: 'keluarga', status: 'draft', judul: 'DARI SERVER',
+    idsubsls: '', nmdesa: '', nmsls: '', kdsubsls: '', updated_at: T1 }];
+  const clean = DraftLogic.mergeDashboard(server, []);
+  assert.equal(clean[0].judul, 'DARI SERVER');
+
+  const dirty = DraftLogic.newDraft('L-1', 'a@b.com', 'keluarga', T1);
+  dirty.record_id = 'R-1';
+  DraftLogic.addRosterRow(dirty, 'anggota_keluarga', T2);
+  DraftLogic.setRosterField(dirty, 'anggota_keluarga', 0, 'b1r6_n', 'LOKAL BARU', T2);
+  const merged = DraftLogic.mergeDashboard(server, [dirty]);
+  assert.equal(merged[0].judul, 'LOKAL BARU'); // editan lokal belum terkirim menang
+});
+
 test('mergeDashboard: server tak terjangkau (list kosong) → draft lokal ber-record_id tetap tampil', () => {
   const d = DraftLogic.newDraft('L-1', 'a@b.com', 'keluarga', T1);
   d.record_id = 'R-1';

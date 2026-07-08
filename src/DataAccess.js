@@ -70,6 +70,24 @@ function saveDraft(pmlEmail, record) {
 }
 
 /**
+ * Hapus record MILIK SENDIRI (cek pml_email di server — bukan cuma tombol UI).
+ * Records boleh hard-delete (data isian PML sendiri); guardrail soft-delete
+ * hanya berlaku untuk Questions/Rules.
+ */
+function deleteRecord(pmlEmail, recordId) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var res = RecordLogic.applyDeleteRecord(SheetDb.readRecords(), pmlEmail, recordId);
+    if (!res.ok) return res;
+    SheetDb.deleteRecordRow(recordId);
+    return { ok: true, record_id: recordId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
  * Submit = simpan jawaban terakhir + validasi required + computed fields +
  * jalankan rule AKTIF + status 'submitted'. Detail kontrak return di
  * SubmitLogic. Validasi gagal → { ok:true, submitted:false, missing } dan

@@ -84,6 +84,129 @@ var AdminLogic = (function () {
   }
 
   /**
+   * Pindah item dari posisi `from` ke posisi `to` (untuk drag & drop, di mana
+   * jarak pindah bisa lebih dari 1). Kembalikan array BARU; `to` dijepit ke
+   * rentang valid; `from` di luar batas = array apa adanya.
+   */
+  function moveToIndex(arr, from, to) {
+    var copy = (arr || []).slice();
+    if (from < 0 || from >= copy.length) return copy;
+    if (to < 0) to = 0;
+    if (to >= copy.length) to = copy.length - 1;
+    if (from === to) return copy;
+    var item = copy.splice(from, 1)[0];
+    copy.splice(to, 0, item);
+    return copy;
+  }
+
+  // ==== RULE MODE SEDERHANA: banyak kondisi + gabungan DAN/ATAU ====
+  // Operator yang boleh membandingkan antar-field (field2). in/not_in/regex/
+  // empty/not_empty TIDAK relevan untuk perbandingan dua field.
+  var CMP_OPS = ['==', '!=', '>', '>=', '<', '<='];
+  // Semua operator leaf yang bisa dibangun/ dibuka lewat Mode Sederhana.
+  var SIMPLE_LEAF_OPS = ['==', '!=', '>', '>=', '<', '<=', 'in', 'not_in', 'empty', 'not_empty', 'regex'];
+
+  /**
+   * Rakit SATU leaf kondisi dari satu baris Mode Sederhana.
+   * @param cond {field, op, compare:'value'|'field', value, field2}
+   * @param fieldMeta {type} field utama — koersi value untuk compare='value'.
+   */
+  function buildLeaf(cond, fieldMeta) {
+    cond = cond || {};
+    var field = cond.field;
+    if (!field) return { ok: false, error: 'Pilih field dulu.' };
+    var op = cond.op;
+    if (op === 'empty' || op === 'not_empty') {
+      return { ok: true, when: { field: field, op: op } };
+    }
+    if (cond.compare === 'field') {
+      if (CMP_OPS.indexOf(op) === -1) {
+        return { ok: false, error: 'Bandingkan antar-field hanya untuk operator ==, !=, >, >=, <, <=.' };
+      }
+      if (!cond.field2) return { ok: false, error: 'Pilih field pembanding.' };
+      if (cond.field2 === field) return { ok: false, error: 'Field pembanding harus berbeda dari field utama.' };
+      return { ok: true, when: { field: field, op: op, field2: cond.field2 } };
+    }
+    // compare='value' → koersi lewat buildSimpleWhen (sumber kebenaran tunggal).
+    return buildSimpleWhen(field, op, cond.value, fieldMeta);
+  }
+
+  /**
+   * Gabungkan beberapa kondisi jadi satu `when`.
+   * @param combinator 'all' (DAN) | 'any' (ATAU).
+   * @param conditions array baris kondisi.
+   * @param metaOf fungsi (fieldId) → fieldMeta|null (menjaga fungsi ini murni).
+   * 1 kondisi → leaf polos (tanpa pembungkus) supaya kompatibel dgn rule lama;
+   * ≥2 kondisi → { all:[...] } / { any:[...] }.
+   */
+  function buildSimpleGroup(combinator, conditions, metaOf) {
+    combinator = combinator === 'any' ? 'any' : 'all';
+    if (!conditions || !conditions.length) return { ok: false, error: 'Tambahkan minimal 1 kondisi.' };
+    var leaves = [];
+    for (var i = 0; i < conditions.length; i++) {
+      var meta = metaOf ? metaOf(conditions[i].field) : (conditions[i].fieldMeta || null);
+      var r = buildLeaf(conditions[i], meta);
+      if (!r.ok) return { ok: false, error: 'Kondisi ' + (i + 1) + ': ' + r.error, index: i };
+      leaves.push(r.when);
+    }
+    if (leaves.length === 1) return { ok: true, when: leaves[0] };
+    var when = {};
+    when[combinator] = leaves;
+    return { ok: true, when: when };
+  }
+
+  // Ubah satu leaf `when` → baris kondisi Mode Sederhana, atau null kalau leaf
+  // itu tidak bisa dibuka di Mode Sederhana (nested/roster/op tak didukung/
+  // field tak dikenal). isKnownField menyaring field yang tak ada di dropdown.
+  function leafToCond(leaf, isKnownField) {
+    if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) return null;
+    if ('all' in leaf || 'any' in leaf ||
+        'roster_any' in leaf || 'roster_all' in leaf || 'roster_count' in leaf) return null;
+    if (typeof leaf.field !== 'string' || !leaf.field) return null;
+    if (isKnownField && !isKnownField(leaf.field)) return null;
+    if (SIMPLE_LEAF_OPS.indexOf(leaf.op) === -1) return null;
+    var cond = { field: leaf.field, op: leaf.op, compare: 'value', value: '', field2: '' };
+    if (leaf.op === 'empty' || leaf.op === 'not_empty') return cond;
+    if ('field2' in leaf) {
+      if (CMP_OPS.indexOf(leaf.op) === -1) return null;
+      if (typeof leaf.field2 !== 'string' || !leaf.field2) return null;
+      if (isKnownField && !isKnownField(leaf.field2)) return null;
+      cond.compare = 'field';
+      cond.field2 = leaf.field2;
+      return cond;
+    }
+    if (!('value' in leaf)) return null;
+    cond.value = leaf.value;
+    return cond;
+  }
+
+  /**
+   * Balikan buildSimpleGroup: apakah `when` bisa disunting di Mode Sederhana?
+   * → { simple:true, combinator, conditions:[...] } | { simple:false }.
+   * "simple" = leaf polos ATAU all/any berisi HANYA leaf-leaf polos yang
+   * seluruh field-nya dikenal. Selain itu jatuh ke Mode Lanjutan (JSON).
+   */
+  function classifySimpleGroup(when, isKnownField) {
+    if (!when || typeof when !== 'object' || Array.isArray(when)) return { simple: false };
+    var combinator, arr;
+    if (Array.isArray(when.all)) { combinator = 'all'; arr = when.all; }
+    else if (Array.isArray(when.any)) { combinator = 'any'; arr = when.any; }
+    else {
+      var single = leafToCond(when, isKnownField);
+      if (!single) return { simple: false };
+      return { simple: true, combinator: 'all', conditions: [single] };
+    }
+    if (!arr.length) return { simple: false };
+    var conds = [];
+    for (var i = 0; i < arr.length; i++) {
+      var c = leafToCond(arr[i], isKnownField);
+      if (!c) return { simple: false };
+      conds.push(c);
+    }
+    return { simple: true, combinator: combinator, conditions: conds };
+  }
+
+  /**
    * Template contoh jawaban untuk panel Preview: field datar kosong + tiap
    * grup roster satu baris kosong — admin tinggal mengisi nilai.
    */
@@ -108,7 +231,12 @@ var AdminLogic = (function () {
     buildSimpleWhen: buildSimpleWhen,
     parseAdvancedWhen: parseAdvancedWhen,
     moveItem: moveItem,
-    buildAnswersTemplate: buildAnswersTemplate
+    moveToIndex: moveToIndex,
+    buildLeaf: buildLeaf,
+    buildSimpleGroup: buildSimpleGroup,
+    classifySimpleGroup: classifySimpleGroup,
+    buildAnswersTemplate: buildAnswersTemplate,
+    CMP_OPS: CMP_OPS
   };
 })();
 

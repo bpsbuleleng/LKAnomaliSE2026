@@ -206,6 +206,39 @@ var SheetDb = (function () {
     if (last > 1) sh.getRange(2, 1, last - 1, sh.getMaxColumns()).clearContent();
   }
 
+  /**
+   * Hapus SATU baris ber-record_id (baris benar-benar dibuang, bukan
+   * dikosongkan, supaya tidak meninggalkan lubang). Caller WAJIB di bawah
+   * ScriptLock dan sudah memverifikasi kepemilikan record.
+   * @return true kalau barisnya ketemu & terhapus.
+   */
+  function deleteRecordRow(recordId) {
+    var sh = mustSheet(TABS.RECORDS);
+    var last = sh.getLastRow();
+    if (last < 2) return false;
+    var ids = sh.getRange(2, 1, last - 1, 1).getDisplayValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i][0] === recordId) {
+        sh.deleteRow(i + 2);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Salin tab Records apa adanya ke tab "Records_backup_<timestamp>" di
+   * spreadsheet yang sama — jaring pengaman sebelum operasi destruktif
+   * (reset e2e, dsb). Tab backup TIDAK pernah dibaca aplikasi.
+   */
+  function backupRecords() {
+    var src = mustSheet(TABS.RECORDS);
+    var stamp = Utilities.formatDate(new Date(), 'Asia/Makassar', 'yyyyMMdd_HHmmss');
+    var name = 'Records_backup_' + stamp;
+    src.copyTo(ss()).setName(name);
+    return { sheet: name, dataRows: Math.max(0, src.getLastRow() - 1) };
+  }
+
   // ==== Questions ====
 
   function questionToRow_(q) {
@@ -341,6 +374,8 @@ var SheetDb = (function () {
     readAlokasi: readAlokasi,
     readRecords: readRecords,
     upsertRecord: upsertRecord,
+    deleteRecordRow: deleteRecordRow,
+    backupRecords: backupRecords,
     clearRecords: clearRecords,
     readQuestions: readQuestions,
     writeQuestions: writeQuestions,

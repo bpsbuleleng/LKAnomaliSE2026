@@ -1,13 +1,30 @@
 <div class="bg-white rounded-2xl shadow p-5 space-y-4">
-  <div class="flex items-center justify-between">
+  <div class="flex items-center justify-between gap-2">
     <h2 class="text-lg font-bold">Kelola Pertanyaan</h2>
-    <button id="aq-add" data-testid="aq-add" type="button"
-      class="h-11 px-4 rounded-xl bg-sky-600 text-white text-sm font-semibold active:bg-sky-700">+ Tambah</button>
+    <div class="flex gap-2">
+      <button id="aq-reorder" data-testid="aq-reorder" type="button"
+        class="h-11 px-3 rounded-xl border border-slate-300 text-sm font-semibold active:bg-slate-100">Ubah Urutan</button>
+      <button id="aq-add" data-testid="aq-add" type="button"
+        class="h-11 px-4 rounded-xl bg-orange-600 text-white text-sm font-semibold active:bg-orange-700">+ Tambah</button>
+    </div>
   </div>
-  <p class="text-xs text-slate-400">
-    Urutkan dengan tombol ↑/↓. Nonaktifkan = soft-delete: hilang dari kuesioner
-    baru, jawaban lama tetap tersimpan. Tidak ada hapus permanen.
+  <p id="aq-hint" class="text-xs text-slate-400">
+    Nonaktifkan = soft-delete: hilang dari kuesioner baru, jawaban lama tetap
+    tersimpan. Tidak ada hapus permanen.
   </p>
+
+  <!-- Bar aksi mode Ubah Urutan (muncul hanya saat menata urutan) -->
+  <div id="aq-reorder-bar" data-testid="aq-reorder-bar"
+    class="hidden sticky top-2 z-20 flex items-center justify-between gap-2 rounded-xl border border-orange-200 bg-orange-50 p-2">
+    <span class="text-xs font-medium text-orange-800 pl-1">Seret ≡ untuk menata, lalu simpan.</span>
+    <div class="flex gap-2">
+      <button id="aq-reorder-cancel" data-testid="aq-reorder-cancel" type="button"
+        class="h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm font-medium active:bg-slate-100">Batal</button>
+      <button id="aq-reorder-save" data-testid="aq-reorder-save" type="button"
+        class="h-10 px-4 rounded-lg bg-orange-600 text-white text-sm font-semibold active:bg-orange-700">Simpan Urutan</button>
+    </div>
+  </div>
+
   <div id="aq-list" class="space-y-2"></div>
 </div>
 
@@ -53,7 +70,7 @@
     </div>
     <p id="aq-error" data-testid="aq-error" class="hidden text-sm text-red-600"></p>
     <button id="aq-save" data-testid="aq-save" type="button"
-      class="w-full h-12 rounded-xl bg-sky-600 text-white font-semibold active:bg-sky-700 disabled:opacity-50">Simpan</button>
+      class="w-full h-12 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700 disabled:opacity-50">Simpan</button>
     <button id="aq-cancel" data-testid="aq-cancel" type="button"
       class="w-full h-12 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
   </div>
