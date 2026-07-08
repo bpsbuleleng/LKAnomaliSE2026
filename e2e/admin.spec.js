@@ -137,11 +137,9 @@ test('CRUD pertanyaan: tambah → edit → reorder ↑ → nonaktifkan; kuesione
   await expect(fa.getByTestId('aq-row-warna_pintu')).toContainText('NONAKTIF');
 
   // -- Kuesioner BARU (sesi segar): field hilang --
+  // Sesi PML tetap awet lewat localStorage → reload tidak perlu login ulang.
   await pml.goto(EXEC_URL);
   const fp2 = app(pml);
-  await fp2.getByTestId('login-email').fill(KADEK);
-  await fp2.getByTestId('login-password').fill('cobaapp');
-  await fp2.getByTestId('login-submit').click();
   await expect(fp2.getByTestId('dashboard-view')).toBeVisible();
   await fp2.getByTestId('new-record-btn').click();
   await fp2.getByTestId('new-keluarga').click();

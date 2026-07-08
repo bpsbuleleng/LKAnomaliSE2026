@@ -134,13 +134,11 @@ test('hapus record: konfirmasi → hilang dari dashboard, dari server, dan dari 
   await expect(f.getByTestId('record-card')).toHaveCount(0);
   await expect(f.getByTestId('record-empty')).toBeVisible();
 
-  // Muat ulang halaman (state client bersih): server & IndexedDB dua-duanya
-  // kosong → dashboard tetap kosong, tidak ada "record hantu".
+  // Muat ulang halaman (state client bersih, sesi PML tetap awet lewat
+  // localStorage → dashboard langsung tanpa login ulang): server & IndexedDB
+  // dua-duanya kosong → dashboard tetap kosong, tidak ada "record hantu".
   await page.goto(EXEC_URL);
   const f2 = app(page);
-  await f2.getByTestId('login-email').fill(KADEK);
-  await f2.getByTestId('login-password').fill('cobaapp');
-  await f2.getByTestId('login-submit').click();
   await expect(f2.getByTestId('dashboard-view')).toBeVisible();
   await expect(f2.getByTestId('record-empty')).toBeVisible();
   await expect(f2.getByTestId('record-card')).toHaveCount(0);
@@ -176,17 +174,17 @@ test('OFFLINE: data selamat di IndexedDB + indikator belum-sync → online → a
   await expect(syncIndicator(f)).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
 
   // Verifikasi data benar-benar sampai SERVER: muat ulang halaman (IndexedDB
-  // bersih tidak dipakai karena draft sudah clean → dashboard pakai server),
-  // login lagi, buka record → nilai dari server.
+  // bersih tidak dipakai karena draft sudah clean → dashboard pakai server;
+  // sesi PML tetap awet lewat localStorage → tidak perlu login lagi), buka
+  // record → nilai dari server.
   await page.goto(EXEC_URL);
   const f2 = app(page);
-  await f2.getByTestId('login-email').fill(KADEK);
-  await f2.getByTestId('login-password').fill('cobaapp');
-  await f2.getByTestId('login-submit').click();
+  await expect(f2.getByTestId('dashboard-view')).toBeVisible();
   await expect(f2.getByTestId('record-card')).toHaveCount(1);
   await f2.getByTestId('record-card').click();
   await expect(f2.getByTestId('q-b4r5')).toHaveValue('999');
-  await expect(f2.getByTestId('q-b4r16a')).toHaveValue('750000');
+  // b4r16a = currency: prefill dirender terformat gaya id-ID ("750.000").
+  await expect(f2.getByTestId('q-b4r16a')).toHaveValue('750.000');
 });
 
 test('dialog keluar: tanpa perubahan langsung keluar; Batal bertahan; Buang membuang', async ({ page, context }) => {

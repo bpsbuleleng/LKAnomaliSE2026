@@ -13,6 +13,13 @@ var AuthLogic = (function () {
     return String(row['Posisi Daftar'] || '').toUpperCase().indexOf('PML') !== -1;
   }
 
+  // Akun "organik" — PML tanpa assignment wilayah tetap (BPS pusat/kabupaten
+  // yang bisa turun ke Sub-SLS mana pun). Bukan baris di tab Petugas — gerbang
+  // password konstan yang sama dengan PML biasa, mirip pola ADMIN_PASSWORD.
+  // WilayahLogic.filterByPml mengenali email ini untuk melewati pembatasan
+  // emailpml (lihat komentar di sana).
+  var ORGANIK_EMAIL = 'organik@bps.go.id';
+
   /**
    * @param {Array<Object>} petugasRows baris tab Petugas (objek ber-key nama kolom asli)
    * @param {string} email
@@ -23,6 +30,11 @@ var AuthLogic = (function () {
   function validateLogin(petugasRows, email, password, expectedPassword) {
     var norm = normalizeEmail(email);
     if (!norm) return { ok: false, error: 'EMAIL_NOT_FOUND' };
+
+    if (norm === ORGANIK_EMAIL) {
+      if (password !== expectedPassword) return { ok: false, error: 'WRONG_PASSWORD' };
+      return { ok: true, pml: { nama: 'Organik', email: norm, sobatId: '' } };
+    }
 
     // Satu email bisa muncul >1 baris; yang dicari baris ber-role PML.
     var emailFound = false;
@@ -46,7 +58,7 @@ var AuthLogic = (function () {
     };
   }
 
-  return { normalizeEmail: normalizeEmail, isPml: isPml, validateLogin: validateLogin };
+  return { normalizeEmail: normalizeEmail, isPml: isPml, validateLogin: validateLogin, ORGANIK_EMAIL: ORGANIK_EMAIL };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

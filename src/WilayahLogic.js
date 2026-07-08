@@ -7,11 +7,17 @@ var WilayahLogic = (function () {
     return String(email == null ? '' : email).trim().toLowerCase();
   }
 
+  // Akun "organik" (lihat AuthLogic.ORGANIK_EMAIL) TIDAK terikat wilayah —
+  // dipakai BPS pusat/kabupaten yang bisa turun ke Sub-SLS mana pun, jadi
+  // SEMUA baris alokasi dianggap "assigned" untuknya (bukan filter kosong).
+  var ORGANIK_EMAIL = 'organik@bps.go.id';
+
   // Dasar pembatasan Sub-SLS per assignment — WAJIB dieksekusi di server,
   // bukan cuma di UI (google.script.run bisa dipanggil dari console siapa pun).
   function filterByPml(rows, pmlEmail) {
     var norm = normEmail(pmlEmail);
     if (!norm) return [];
+    if (norm === ORGANIK_EMAIL) return rows.slice();
     return rows.filter(function (r) { return normEmail(r.emailpml) === norm; });
   }
 
@@ -48,7 +54,8 @@ var WilayahLogic = (function () {
   return {
     filterByPml: filterByPml,
     findByIdsubsls: findByIdsubsls,
-    joinPetugasNames: joinPetugasNames
+    joinPetugasNames: joinPetugasNames,
+    ORGANIK_EMAIL: ORGANIK_EMAIL
   };
 })();
 

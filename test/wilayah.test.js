@@ -30,6 +30,11 @@ test('filterByPml: PML tanpa assignment → array kosong (bukan error)', () => {
   assert.deepEqual(WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, ''), []);
 });
 
+test('filterByPml: akun organik TIDAK terikat wilayah → semua baris (case-insensitive)', () => {
+  const rows = WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, ' Organik@BPS.go.id ');
+  assert.equal(rows.length, MockData.ALOKASI_WILAYAH.length);
+});
+
 test('findByIdsubsls: ketemu dan tidak ketemu', () => {
   assert.equal(WilayahLogic.findByIdsubsls(MockData.ALOKASI_WILAYAH, '5108010001000101').nmdesa, 'Sumberklampok');
   assert.equal(WilayahLogic.findByIdsubsls(MockData.ALOKASI_WILAYAH, '9999999999999999'), null);

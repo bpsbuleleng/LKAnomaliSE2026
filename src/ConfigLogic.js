@@ -19,7 +19,7 @@ var ConfigLogic = (function () {
     return RuleEvaluator;
   }
 
-  var TYPES = ['text', 'number', 'select', 'date', 'textarea'];
+  var TYPES = ['text', 'number', 'currency', 'select', 'date', 'textarea'];
   var SEVERITIES = ['error', 'warning'];
   var ALIAS_RE = /^[a-z0-9_]+$/i;
 

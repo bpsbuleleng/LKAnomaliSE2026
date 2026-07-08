@@ -27,9 +27,10 @@
   <?!= include('DraftStore'); ?>
 
   <script>
-    // State aplikasi — identitas PML & cache hanya hidup di memory selama sesi
-    // halaman, sengaja TIDAK ditaruh di localStorage. Draft offline ada di
-    // IndexedDB (DraftStore).
+    // State aplikasi — identitas PML & cache hidup di memory selama sesi
+    // halaman. Identitas PML (nama/email/sobatId, TANPA password) juga
+    // disalin ke localStorage (lihat SESSION_KEY) supaya refresh halaman
+    // tidak memaksa login ulang. Draft offline ada di IndexedDB (DraftStore).
     var App = { state: { pml: null, wilayahRows: null, questionCache: {} } };
     // Kuesioner yang sedang terbuka + state sync engine-nya.
     var Q = { draft: null, prefilling: false, debounceTimer: null, retryTimer: null, inFlight: false };
@@ -84,6 +85,28 @@
       UiFx.btnBusy(el('login-submit'), busy, 'Memeriksa…');
     }
 
+    // Identitas PML saja (tanpa password) — dipakai supaya refresh halaman
+    // tidak memaksa login ulang. Bukan rahasia: sama dengan yang tampil di
+    // sapaan dashboard.
+    var SESSION_KEY = 'lka_pml_session';
+    function saveSession(pml) {
+      try { localStorage.setItem(SESSION_KEY, JSON.stringify(pml)); } catch (e) {}
+    }
+    function clearSession() {
+      try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+    }
+    function restoreSession() {
+      var raw;
+      try { raw = localStorage.getItem(SESSION_KEY); } catch (e) { return false; }
+      if (!raw) return false;
+      var pml;
+      try { pml = JSON.parse(raw); } catch (e) { return false; }
+      if (!pml || !pml.email) return false;
+      App.state.pml = pml;
+      enterDashboard();
+      return true;
+    }
+
     el('login-form').addEventListener('submit', function (ev) {
       ev.preventDefault();
       setLoginError('');
@@ -93,6 +116,7 @@
           setLoginBusy(false);
           if (res && res.ok) {
             App.state.pml = res.pml;
+            saveSession(res.pml);
             el('login-password').value = '';
             enterDashboard();
           } else {
@@ -109,6 +133,7 @@
       App.state.pml = null;
       App.state.wilayahRows = null;
       App.state.questionCache = {};
+      clearSession();
       showView('login');
     });
 
@@ -493,6 +518,31 @@
         input.addEventListener('input', function () {
           onChange(input.value === '' ? '' : Number(input.value));
         });
+      } else if (q.type === 'currency') {
+        // Tampil "1.234.567" (format id-ID) — angka MURNI (bukan string) yang
+        // dikirim ke onChange, supaya rule evaluator tetap menerima number
+        // seperti field number biasa. Format hanya diterapkan saat blur, supaya
+        // tidak mengganggu posisi kursor selagi mengetik.
+        input = document.createElement('input');
+        input.type = 'text';
+        input.setAttribute('inputmode', 'decimal');
+        input.className = INPUT_CLS;
+        var fmtID = function (n) { return isNaN(n) ? '' : n.toLocaleString('id-ID'); };
+        var parseID = function (str) {
+          var cleaned = String(str == null ? '' : str).replace(/[^0-9,]/g, '');
+          if (!cleaned) return '';
+          return Number(cleaned.replace(',', '.'));
+        };
+        input.value = (value === 0 || value) ? fmtID(Number(value)) : '';
+        input.addEventListener('focus', function () {
+          var n = parseID(input.value);
+          input.value = n === '' ? '' : String(n).replace('.', ',');
+        });
+        input.addEventListener('blur', function () {
+          var n = parseID(input.value);
+          input.value = fmtID(n);
+        });
+        input.addEventListener('input', function () { onChange(parseID(input.value)); });
       } else { // text | date
         input = document.createElement('input');
         input.type = q.type === 'date' ? 'date' : 'text';
@@ -986,6 +1036,7 @@
     });
 
     initCascades();
+    restoreSession();
   </script>
 </body>
 </html>

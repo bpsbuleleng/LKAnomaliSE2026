@@ -44,7 +44,7 @@ var AdminLogic = (function () {
     }
     var raw = String(rawValue == null ? '' : rawValue).trim();
     if (raw === '') return { ok: false, error: 'Value belum diisi.' };
-    var numeric = fieldMeta && (fieldMeta.type === 'number' || fieldMeta.type === 'select');
+    var numeric = fieldMeta && (fieldMeta.type === 'number' || fieldMeta.type === 'currency' || fieldMeta.type === 'select');
 
     if (op === 'in' || op === 'not_in') {
       var items = raw.split(',').map(function (v) { return v.trim(); }).filter(function (v) { return v !== ''; });

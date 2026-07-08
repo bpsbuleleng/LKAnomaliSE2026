@@ -54,6 +54,16 @@ test('email kosong / null', () => {
   assert.deepEqual(login(null, 'cobaapp'), { ok: false, error: 'EMAIL_NOT_FOUND' });
 });
 
+test('organik: login sah TANPA baris di Petugas, password sama seperti PML', () => {
+  const res = login('organik@bps.go.id', 'cobaapp');
+  assert.deepEqual(res, { ok: true, pml: { nama: 'Organik', email: 'organik@bps.go.id', sobatId: '' } });
+});
+
+test('organik: email di-trim/case-insensitive; password salah tetap ditolak', () => {
+  assert.equal(login('  Organik@BPS.go.id ', 'cobaapp').ok, true);
+  assert.deepEqual(login('organik@bps.go.id', 'salah'), { ok: false, error: 'WRONG_PASSWORD' });
+});
+
 test('email duplikat: baris PML tetap ketemu walau ada baris PPL dengan email sama', () => {
   const rows = [
     { 'Nama Lengkap': 'X', 'Posisi Daftar': 'Petugas Lapangan Sensus (PPL Sensus)', 'SOBAT ID': '1', 'Email': 'dobel@gmail.com' },
