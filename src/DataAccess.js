@@ -1,13 +1,13 @@
 /**
  * DataAccess — SATU-SATUNYA boundary data aplikasi.
- * Fase sekarang: mock (MockData in-memory untuk data referensi; PropertiesService
- * untuk Records karena global GAS TIDAK bertahan antar panggilan google.script.run).
- * Fase 5: body fungsi diganti SpreadsheetApp — SIGNATURE DAN BENTUK RETURN
- * TIDAK BOLEH BERUBAH.
+ * Fase 5: implementasi baca/tulis Google Sheets via SheetDb (SpreadsheetApp).
+ * SIGNATURE DAN BENTUK RETURN SAMA PERSIS dengan fase mock — kode client
+ * (google.script.run) tidak berubah sedikit pun.
  *
  * Konvensi return: objek plain JSON-serializable
  *   { ok: true, ... } | { ok: false, error: 'KODE_ERROR', ... }
- * Tanggal selalu string ISO (objek Date bermasalah lewat google.script.run).
+ * Tanggal selalu string ISO (objek Date bermasalah lewat google.script.run;
+ * kolom created_at/updated_at di sheet berformat TEXT jadi ISO utuh).
  */
 
 var PML_PASSWORD = 'cobaapp';
@@ -18,130 +18,55 @@ var ADMIN_PASSWORD = 'admin5108';
 // ==== AUTH ====
 
 function login(email, password) {
-  return AuthLogic.validateLogin(MockData.PETUGAS, email, password, PML_PASSWORD);
+  return AuthLogic.validateLogin(SheetDb.readPetugas(), email, password, PML_PASSWORD);
 }
 
 // ==== WILAYAH ====
 
 function getWilayah(pmlEmail) {
-  return { ok: true, rows: WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, pmlEmail) };
+  return { ok: true, rows: WilayahLogic.filterByPml(SheetDb.readAlokasi(), pmlEmail) };
 }
 
 function getPPL(idsubsls) {
-  var row = WilayahLogic.findByIdsubsls(MockData.ALOKASI_WILAYAH, idsubsls);
+  var row = WilayahLogic.findByIdsubsls(SheetDb.readAlokasi(), idsubsls);
   if (!row) return { ok: false, error: 'NOT_FOUND' };
-  return { ok: true, ppl: WilayahLogic.joinPetugasNames(row, MockData.PETUGAS) };
+  return { ok: true, ppl: WilayahLogic.joinPetugasNames(row, SheetDb.readPetugas()) };
 }
 
-// ==== MOCK STORE (Script Properties, JSON, chunked) ====
-// Global GAS TIDAK bertahan antar panggilan google.script.run, jadi data yang
-// bisa berubah (Records, dan sejak Fase 4: Questions & Rules hasil CRUD
-// admin) hidup di Script Properties. Chunked karena satu property dibatasi
-// ±9KB sedangkan JSON Questions > 9KB.
-
-var RECORDS_STORE_KEY = 'MOCK_RECORDS';
-var QUESTIONS_STORE_KEY = 'MOCK_QUESTIONS';
-var RULES_STORE_KEY = 'MOCK_RULES';
-var CHUNK_SIZE = 8000;
-
-function writeStore_(key, value) {
-  var props = PropertiesService.getScriptProperties();
-  var json = JSON.stringify(value);
-  var n = Math.ceil(json.length / CHUNK_SIZE) || 1;
-  var oldN = Number(props.getProperty(key + '_N') || 0);
-  for (var i = n; i < oldN; i++) props.deleteProperty(key + '_' + i); // sisa chunk lama
-  for (var j = 0; j < n; j++) props.setProperty(key + '_' + j, json.substr(j * CHUNK_SIZE, CHUNK_SIZE));
-  props.setProperty(key + '_N', String(n));
-}
-
-function readStore_(key) {
-  var props = PropertiesService.getScriptProperties();
-  var n = Number(props.getProperty(key + '_N') || 0);
-  if (!n) return null;
-  var parts = [];
-  for (var i = 0; i < n; i++) parts.push(props.getProperty(key + '_' + i) || '');
-  return JSON.parse(parts.join(''));
-}
-
-function clearStore_(key) {
-  var props = PropertiesService.getScriptProperties();
-  var n = Number(props.getProperty(key + '_N') || 0);
-  for (var i = 0; i < n; i++) props.deleteProperty(key + '_' + i);
-  props.deleteProperty(key + '_N');
-}
-
-function readRecords_() {
-  return readStore_(RECORDS_STORE_KEY) || [];
-}
-
-function writeRecords_(records) {
-  writeStore_(RECORDS_STORE_KEY, records);
-}
-
-// Questions & Rules: seed dari MockData saat store kosong. Fase 5: body
-// helper ini diganti baca/tulis SpreadsheetApp, bentuk data tidak berubah.
-function readQuestions_() {
-  var v = readStore_(QUESTIONS_STORE_KEY);
-  if (!v) { v = MockData.QUESTIONS; writeStore_(QUESTIONS_STORE_KEY, v); }
-  return v;
-}
-
-function writeQuestions_(questions) {
-  writeStore_(QUESTIONS_STORE_KEY, questions);
-}
-
-function readRules_() {
-  var v = readStore_(RULES_STORE_KEY);
-  if (!v) { v = MockData.RULES; writeStore_(RULES_STORE_KEY, v); }
-  return v;
-}
-
-function writeRules_(rules) {
-  writeStore_(RULES_STORE_KEY, rules);
-}
+// ==== RECORDS ====
 
 function listRecords(pmlEmail) {
-  return { ok: true, records: RecordLogic.listRecordsFor(readRecords_(), pmlEmail) };
+  return { ok: true, records: RecordLogic.listRecordsFor(SheetDb.readRecords(), pmlEmail) };
 }
 
 function getRecord(pmlEmail, recordId) {
-  return RecordLogic.getRecordFor(readRecords_(), pmlEmail, recordId);
+  return RecordLogic.getRecordFor(SheetDb.readRecords(), pmlEmail, recordId);
+}
+
+function pickRecord_(records, recordId) {
+  for (var i = 0; i < records.length; i++) {
+    if (records[i].record_id === recordId) return records[i];
+  }
+  return null;
 }
 
 function saveDraft(pmlEmail, record) {
   var lock = LockService.getScriptLock();
-  lock.waitLock(10000); // serialisasi read-modify-write store + pembuatan record_id
+  lock.waitLock(10000); // serialisasi read-modify-write + keputusan append-vs-update
   try {
-    var assigned = WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, pmlEmail);
+    var assigned = WilayahLogic.filterByPml(SheetDb.readAlokasi(), pmlEmail);
     var res = RecordLogic.applySaveDraft(
-      readRecords_(), pmlEmail, record, assigned,
+      SheetDb.readRecords(), pmlEmail, record, assigned,
       new Date().toISOString(), 'R-' + Utilities.getUuid()
     );
     if (!res.ok) return res;
-    writeRecords_(res.records);
+    // Logic murni mengembalikan seluruh array; yang ditulis ke sheet HANYA
+    // baris terdampak (upsert by record_id) — bukan rewrite seluruh tab.
+    SheetDb.upsertRecord(pickRecord_(res.records, res.record_id));
     return { ok: true, record_id: res.record_id, updated_at: res.updated_at };
   } finally {
     lock.releaseLock();
   }
-}
-
-// Helper dev KHUSUS mock (bukan bagian boundary final — dibuang di Fase 5).
-// Dipakai e2e supaya store deterministik antar run.
-function resetMockRecords(adminPassword) {
-  var deny = requireAdmin_(adminPassword);
-  if (deny) return deny;
-  writeRecords_([]);
-  return { ok: true };
-}
-
-// Idem: kembalikan Questions & Rules ke baseline MockData (seed ulang saat
-// dibaca berikutnya). Dibuang di Fase 5.
-function resetMockConfig(adminPassword) {
-  var deny = requireAdmin_(adminPassword);
-  if (deny) return deny;
-  clearStore_(QUESTIONS_STORE_KEY);
-  clearStore_(RULES_STORE_KEY);
-  return { ok: true };
 }
 
 /**
@@ -155,15 +80,15 @@ function submitRecord(pmlEmail, record) {
   lock.waitLock(10000);
   try {
     var jenis = record && record.jenis;
-    var assigned = WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, pmlEmail);
-    var questions = QuestionLogic.selectQuestions(readQuestions_(), jenis, false);
-    var rules = RuleLogic.selectRules(readRules_(), jenis, false);
+    var assigned = WilayahLogic.filterByPml(SheetDb.readAlokasi(), pmlEmail);
+    var questions = QuestionLogic.selectQuestions(SheetDb.readQuestions(), jenis, false);
+    var rules = RuleLogic.selectRules(SheetDb.readRules(), jenis, false);
     var res = SubmitLogic.applySubmit(
-      readRecords_(), pmlEmail, record, assigned, questions, rules,
+      SheetDb.readRecords(), pmlEmail, record, assigned, questions, rules,
       new Date().toISOString(), 'R-' + Utilities.getUuid()
     );
     if (!res.ok) return res;
-    writeRecords_(res.records);
+    SheetDb.upsertRecord(pickRecord_(res.records, res.record_id));
     return {
       ok: true, submitted: res.submitted, record_id: res.record_id,
       updated_at: res.updated_at, missing: res.missing || [],
@@ -174,26 +99,55 @@ function submitRecord(pmlEmail, record) {
   }
 }
 
+// ==== UTILITAS TESTING (password-gated; dipakai e2e supaya deterministik) ====
+// PERHATIAN: sejak Fase 5 ini beroperasi ke tab SUNGGUHAN — resetRecords
+// menghapus SEMUA baris Records, resetConfig mengembalikan Questions & Rules
+// ke baseline MockData. Jangan dipanggil setelah data produksi masuk.
+
+function resetRecords(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    SheetDb.clearRecords();
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function resetConfig(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    SheetDb.writeQuestions(MockData.QUESTIONS);
+    SheetDb.writeRules(MockData.RULES);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ==== CONFIG: baca (unprivileged, read-only) ====
 
 function getQuestions(jenis, includeInactive) {
   if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
-  return { ok: true, questions: QuestionLogic.selectQuestions(readQuestions_(), jenis, includeInactive === true) };
+  return { ok: true, questions: QuestionLogic.selectQuestions(SheetDb.readQuestions(), jenis, includeInactive === true) };
 }
 
-// `when` di mock disimpan sebagai OBJEK; di Fase 5 kolom sheet berisi string
-// JSON — evaluator menerima dua-duanya, jadi implementasi Sheets boleh
-// meneruskan string apa adanya.
 function getRules(jenis, includeInactive) {
   if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
-  return { ok: true, rules: RuleLogic.selectRules(readRules_(), jenis, includeInactive === true) };
+  return { ok: true, rules: RuleLogic.selectRules(SheetDb.readRules(), jenis, includeInactive === true) };
 }
 
 // Sumber dropdown field Mode Sederhana rule: alias pertanyaan AKTIF + computed
 // fields (type/options ikut supaya client bisa merender input value yang pas).
 function getRuleFieldOptions(jenis) {
   if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
-  var fields = QuestionLogic.selectQuestions(readQuestions_(), jenis, false)
+  var fields = QuestionLogic.selectQuestions(SheetDb.readQuestions(), jenis, false)
     .filter(function (q) { return !q.roster_group; }) // field roster hanya via Mode Lanjutan (roster_*)
     .map(function (q) {
       return { id: q.question_id, label: q.label, source: 'question', type: q.type, options: q.options };
@@ -219,16 +173,16 @@ function checkAdminPassword(adminPassword) {
   return requireAdmin_(adminPassword) || { ok: true };
 }
 
-// Read-modify-write store di bawah lock, logic murni di ConfigLogic.
+// Read-modify-write tab di bawah lock, logic murni di ConfigLogic.
 function withQuestions_(adminPassword, mutate) {
   var deny = requireAdmin_(adminPassword);
   if (deny) return deny;
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var res = mutate(readQuestions_());
+    var res = mutate(SheetDb.readQuestions());
     if (!res.ok) return res;
-    writeQuestions_(res.questions);
+    SheetDb.writeQuestions(res.questions);
     return { ok: true, question: res.question };
   } finally {
     lock.releaseLock();
@@ -241,9 +195,9 @@ function withRules_(adminPassword, mutate) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var res = mutate(readRules_());
+    var res = mutate(SheetDb.readRules());
     if (!res.ok) return res;
-    writeRules_(res.rules);
+    SheetDb.writeRules(res.rules);
     return { ok: true, rule: res.rule };
   } finally {
     lock.releaseLock();

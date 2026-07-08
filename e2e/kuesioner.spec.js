@@ -24,10 +24,10 @@ async function newRecord(f, jenis) {
   await f.getByTestId('new-' + jenis).click();
 }
 
-async function resetMockRecords(f) {
+async function resetRecords(f) {
   await f.locator('body').evaluate(() =>
     new Promise((resolve) =>
-      google.script.run.withSuccessHandler(resolve).resetMockRecords('admin5108')
+      google.script.run.withSuccessHandler(resolve).resetRecords('admin5108')
     )
   );
 }
@@ -52,7 +52,7 @@ const syncIndicator = (f) => f.getByTestId('sync-indicator');
 
 test('kuesioner dinamis: pertanyaan aktif sesuai jenis, soft-deleted tidak tampil, roster ada', async ({ page }) => {
   const f = await login(page, KADEK);
-  await resetMockRecords(f);
+  await resetRecords(f);
   await newRecord(f, 'keluarga');
 
   // Field keluarga tampil, field usaha TIDAK
@@ -74,7 +74,7 @@ test('kuesioner dinamis: pertanyaan aktif sesuai jenis, soft-deleted tidak tampi
 
 test('alur normal: isi (flat + roster) → auto-sync → simpan → buka lagi ter-prefill', async ({ page }) => {
   const f = await login(page, KADEK);
-  await resetMockRecords(f);
+  await resetRecords(f);
   await newRecord(f, 'keluarga');
 
   await pickWilayah(f);
@@ -109,7 +109,7 @@ test('alur normal: isi (flat + roster) → auto-sync → simpan → buka lagi te
 
 test('OFFLINE: data selamat di IndexedDB + indikator belum-sync → online → auto-sync ke server', async ({ page, context }) => {
   const f = await login(page, KADEK);
-  await resetMockRecords(f);
+  await resetRecords(f);
   await newRecord(f, 'keluarga');
   await pickWilayah(f);
   await f.getByTestId('q-b1r13_1').fill('30');
@@ -152,7 +152,7 @@ test('OFFLINE: data selamat di IndexedDB + indikator belum-sync → online → a
 
 test('dialog keluar: tanpa perubahan langsung keluar; Batal bertahan; Buang membuang', async ({ page, context }) => {
   const f = await login(page, KADEK);
-  await resetMockRecords(f);
+  await resetRecords(f);
 
   // Tanpa perubahan → tidak ada dialog
   await newRecord(f, 'keluarga');
@@ -184,7 +184,7 @@ test('dialog keluar: tanpa perubahan langsung keluar; Batal bertahan; Buang memb
 
 test('dialog keluar saat offline: Simpan sementara → draft "belum sync" di dashboard → dibuka lagi auto-sync', async ({ page, context }) => {
   const f = await login(page, KADEK);
-  await resetMockRecords(f);
+  await resetRecords(f);
 
   // Tunggu prefetch referensi (questions + wilayah) selesai sebelum offline —
   // inilah yang membuat kuesioner BARU bisa dibuka tanpa koneksi.
@@ -213,7 +213,7 @@ test('dialog keluar saat offline: Simpan sementara → draft "belum sync" di das
   await expect(syncIndicator(f)).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
 });
 
-// Helper: pilih wilayah lengkap (Gerokgak/Sumberkima/0001/01).
+// Helper: pilih wilayah lengkap (riil: Gerokgak/Pejarakan/0001/01 — milik KADEK).
 async function pickWilayah(f) {
   await f.getByTestId('kecamatan-trigger').click();
   await f.getByTestId('kecamatan-list').locator('li[data-kode="010"]').click();

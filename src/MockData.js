@@ -1,12 +1,9 @@
 /**
- * MockData — pengganti in-memory tab Google Sheets untuk Fase 0-4.
- * Struktur & nama kolom PERSIS mengikuti sheet asli, supaya swap ke
- * SpreadsheetApp di Fase 5 tidak mengubah bentuk data yang mengalir.
+ * MockData — dataset referensi baseline. Sejak Fase 5 BUKAN lagi store
+ * runtime; perannya tinggal dua: (1) fixture unit test Node, (2) sumber seed
+ * tab Google Sheets yang masih kosong (adminSetupSheets) dan baseline
+ * resetConfig. Struktur & nama kolom PERSIS mengikuti sheet asli.
  * GUARDRAIL: semua kode wilayah (kdkec, kddesa, kdsls, kdsubsls) STRING.
- *
- * Catatan: tab Records TIDAK di sini — variabel global GAS tidak bertahan
- * antar panggilan google.script.run, jadi Records disimpan di
- * PropertiesService (lihat DataAccess).
  */
 var MockData = {
   PETUGAS: [

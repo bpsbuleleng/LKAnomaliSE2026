@@ -24,10 +24,10 @@ async function newRecord(f, jenis) {
   await f.getByTestId('new-' + jenis).click();
 }
 
-async function resetMockRecords(f) {
+async function resetRecords(f) {
   await f.locator('body').evaluate(() =>
     new Promise((resolve) =>
-      google.script.run.withSuccessHandler(resolve).resetMockRecords('admin5108')
+      google.script.run.withSuccessHandler(resolve).resetRecords('admin5108')
     )
   );
 }
@@ -46,7 +46,7 @@ async function pickWilayah(f) {
 
 test('submit keluarga: required kosong ditolak + field ditunjuk → submit → daftar anomali → edit → submit ulang ter-update', async ({ page }) => {
   const f = await login(page, KADEK);
-  await resetMockRecords(f);
+  await resetRecords(f);
   await newRecord(f, 'keluarga');
   await expect(f.getByTestId('record-status-chip')).toHaveText('draft');
   await expect(f.getByTestId('q-b1r13_1')).toBeVisible(); // kuesioner selesai dirender
@@ -104,7 +104,7 @@ test('submit keluarga: required kosong ditolak + field ditunjuk → submit → d
 
 test('submit usaha: computed fields server-side memicu multi anomali (U2 + U4)', async ({ page }) => {
   const f = await login(page, KADEK);
-  await resetMockRecords(f);
+  await resetRecords(f);
   await newRecord(f, 'usaha');
 
   await pickWilayah(f);

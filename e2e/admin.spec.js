@@ -27,8 +27,8 @@ function direct(f, fn, args) {
 }
 
 async function resetAll(f) {
-  await direct(f, 'resetMockConfig', [ADMIN_PW]);
-  await direct(f, 'resetMockRecords', [ADMIN_PW]);
+  await direct(f, 'resetConfig', [ADMIN_PW]);
+  await direct(f, 'resetRecords', [ADMIN_PW]);
 }
 
 async function adminLogin(page) {
@@ -67,8 +67,8 @@ async function pickWilayah(f) {
 test.afterEach(async ({ page }) => {
   try {
     const f = app(page);
-    await direct(f, 'resetMockConfig', [ADMIN_PW]);
-    await direct(f, 'resetMockRecords', [ADMIN_PW]);
+    await direct(f, 'resetConfig', [ADMIN_PW]);
+    await direct(f, 'resetRecords', [ADMIN_PW]);
   } catch (e) { /* halaman sudah tertutup — biarkan */ }
 });
 
@@ -215,8 +215,8 @@ test('SERVER-SIDE GUARD: panggilan langsung (console) SEMUA fungsi privileged de
     ['setRuleActive', ['K7', false]],
     ['previewRule', ['keluarga', { field: 'b4r5', op: '>', value: 1 }, {}]],
     ['checkAdminPassword', []],
-    ['resetMockConfig', []],
-    ['resetMockRecords', []]
+    ['resetConfig', []],
+    ['resetRecords', []]
   ];
 
   for (const [fn, rest] of PRIVILEGED) {
@@ -244,5 +244,5 @@ test('SERVER-SIDE GUARD: panggilan langsung (console) SEMUA fungsi privileged de
   const okCreate = await direct(f, 'createQuestion',
     [ADMIN_PW, 'keluarga', { question_id: 'kontrol_positif', label: 'x', type: 'text' }]);
   expect(okCreate.ok).toBe(true);
-  expect(await direct(f, 'resetMockConfig', [ADMIN_PW])).toEqual({ ok: true });
+  expect(await direct(f, 'resetConfig', [ADMIN_PW])).toEqual({ ok: true });
 });
