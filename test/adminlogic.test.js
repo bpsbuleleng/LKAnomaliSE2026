@@ -27,6 +27,14 @@ test('optionsToText: round-trip', () => {
   assert.deepEqual(AdminLogic.parseOptionsText(AdminLogic.optionsToText(options)).options, options);
 });
 
+test('parseOptionsText: kode ber-huruf (1a, 1b) untuk sub-kategori → value string', () => {
+  const res = AdminLogic.parseOptionsText('1a. Sub A\n1b) Sub B\n2. Biasa');
+  assert.deepEqual(res, {
+    ok: true,
+    options: [{ value: '1a', label: 'Sub A' }, { value: '1b', label: 'Sub B' }, { value: 2, label: 'Biasa' }]
+  });
+});
+
 // ==== buildSimpleWhen ====
 
 test('buildSimpleWhen: koersi angka utk field number/select; teks tetap string', () => {

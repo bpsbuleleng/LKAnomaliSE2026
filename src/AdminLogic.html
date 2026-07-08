@@ -9,6 +9,9 @@ var AdminLogic = (function () {
   /**
    * Parse textarea options gaya kolom `kategori` sheet asli:
    * satu opsi per baris, format "1. Label" (titik boleh ")" atau tanpa).
+   * Kode boleh diikuti huruf (mis. "1a", "1b") untuk sub-kategori — kode
+   * angka-murni disimpan sebagai Number (kompatibel rule lama), kode
+   * ber-huruf disimpan sebagai String.
    * → { ok, options: [{value, label}] } | { ok:false, error }
    */
   function parseOptionsText(text) {
@@ -18,9 +21,10 @@ var AdminLogic = (function () {
     if (!lines.length) return { ok: false, error: 'Opsi kosong — isi satu opsi per baris, format "1. Label".' };
     var options = [];
     for (var i = 0; i < lines.length; i++) {
-      var m = lines[i].match(/^(\d+)\s*[.)]?\s+(.+)$/);
-      if (!m) return { ok: false, error: 'Baris ' + (i + 1) + ' tidak sesuai format "kode. label": "' + lines[i] + '"' };
-      options.push({ value: Number(m[1]), label: m[2].trim() });
+      var m = lines[i].match(/^([0-9]+[a-zA-Z]*)\s*[.)]?\s+(.+)$/);
+      if (!m) return { ok: false, error: 'Baris ' + (i + 1) + ' tidak sesuai format "kode. label" (kode angka, boleh diakhiri huruf mis. "1a"): "' + lines[i] + '"' };
+      var code = m[1];
+      options.push({ value: /^[0-9]+$/.test(code) ? Number(code) : code, label: m[2].trim() });
     }
     return { ok: true, options: options };
   }
