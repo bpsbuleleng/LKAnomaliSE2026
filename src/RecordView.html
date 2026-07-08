@@ -63,8 +63,11 @@
       <div id="ppl-info" data-testid="ppl-info"
         class="hidden rounded-xl bg-sky-50 border border-sky-200 p-4 text-sm space-y-1">
         <p class="text-slate-500">Petugas wilayah ini:</p>
-        <p>PPL: <span id="ppl-nama" data-testid="ppl-nama" class="font-semibold"></span></p>
-        <p>PML: <span id="pml-nama" data-testid="pml-nama" class="font-semibold"></span></p>
+        <p id="ppl-loading" class="hidden text-slate-400"><span class="spin"></span>Memuat petugas…</p>
+        <div id="ppl-names" class="space-y-1">
+          <p>PPL: <span id="ppl-nama" data-testid="ppl-nama" class="font-semibold"></span></p>
+          <p>PML: <span id="pml-nama" data-testid="pml-nama" class="font-semibold"></span></p>
+        </div>
       </div>
     </div>
 
@@ -96,7 +99,7 @@
   <!-- Dialog konfirmasi keluar saat ada perubahan belum ke-sync -->
   <div id="exit-dialog" data-testid="exit-dialog"
     class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
-    <div class="bg-white w-full max-w-md rounded-2xl p-5 space-y-3">
+    <div class="dlg-panel bg-white w-full max-w-md rounded-2xl p-5 space-y-3">
       <h2 class="font-bold text-lg">Perubahan belum tersinkron</h2>
       <p class="text-sm text-slate-500">
         Ada perubahan yang belum terkirim ke server. Data tetap aman tersimpan
@@ -114,7 +117,7 @@
   <!-- Daftar Anomali — hasil rule validation setelah submit (laporan, tidak memblokir) -->
   <div id="anomaly-dialog" data-testid="anomaly-dialog"
     class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
-    <div class="bg-white w-full max-w-md rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+    <div class="dlg-panel bg-white w-full max-w-md rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
       <h2 class="font-bold text-lg">Hasil Pemeriksaan Anomali</h2>
       <p id="anomaly-dialog-count" data-testid="anomaly-dialog-count" class="text-sm text-slate-500"></p>
       <ul id="anomaly-dialog-list" class="space-y-2"></ul>

@@ -70,6 +70,28 @@ test('pangsa & rasio: dihitung dari r26_total; total 0 → null (tidak berlaku)'
   assert.equal(kosong.rasio_pendapatan_biaya, null);
 });
 
+// ==== jumlah_<roster>: banyak baris roster (apa pun isinya) ====
+
+test('jumlah_anggota_keluarga & jumlah_meteran_listrik: hitung SEMUA baris', () => {
+  const out = keluarga({ roster: {
+    anggota_keluarga: [{ b1r9_n: 1 }, { b1r9_n: 2 }, {}],
+    meteran_listrik: [{ b4r14b_n: 1 }]
+  } });
+  assert.equal(out.jumlah_anggota_keluarga, 3); // baris kosong pun terhitung
+  assert.equal(out.jumlah_meteran_listrik, 1);
+});
+
+test('jumlah_<roster>: roster tidak ada → 0 (field tetap dibuat)', () => {
+  const out = keluarga({});
+  assert.equal(out.jumlah_anggota_keluarga, 0);
+  assert.equal(out.jumlah_meteran_listrik, 0);
+});
+
+test('jumlah_<roster>: nilai kiriman client ditimpa hasil hitung server', () => {
+  const out = keluarga({ jumlah_anggota_keluarga: 99, roster: { anggota_keluarga: [{}] } });
+  assert.equal(out.jumlah_anggota_keluarga, 1);
+});
+
 // ==== Perilaku augment ====
 
 test('augment TIDAK memutasi input dan menimpa computed lama saat dihitung ulang', () => {

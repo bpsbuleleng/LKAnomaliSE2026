@@ -1,0 +1,111 @@
+<script>
+/**
+ * UiFx — helper kecil animasi & loading bersama (Index + Admin). Murni DOM,
+ * tanpa state aplikasi; pasangan CSS-nya ada di Styles.html.
+ */
+var UiFx = (function () {
+  /**
+   * Tombol busy: spinner + label sementara, disabled, label asli dikembalikan
+   * saat busy=false. Idempoten — aman dipanggil busy=true berulang (retry loop).
+   */
+  function btnBusy(btn, busy, busyLabel) {
+    if (!btn) return;
+    if (busy) {
+      if (!btn.dataset.uifxLabel) btn.dataset.uifxLabel = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>' + (busyLabel || 'Memproses…');
+    } else {
+      btn.disabled = false;
+      if (btn.dataset.uifxLabel) {
+        btn.innerHTML = btn.dataset.uifxLabel;
+        delete btn.dataset.uifxLabel;
+      }
+    }
+  }
+
+  /** Putar ulang animasi CSS pada elemen (hapus kelas → reflow → pasang lagi). */
+  function replayAnim(node, cls) {
+    if (!node) return;
+    node.classList.remove(cls);
+    void node.offsetWidth; // paksa reflow supaya animasi restart
+    node.classList.add(cls);
+  }
+
+  /** Animasi masuk berjenjang untuk anak-anak sebuah container (kartu/baris). */
+  function staggerIn(children, stepMs) {
+    var step = stepMs || 40;
+    Array.prototype.forEach.call(children, function (node, i) {
+      node.classList.add('anim-in');
+      node.style.animationDelay = Math.min(i, 8) * step + 'ms';
+    });
+  }
+
+  /** Animasi keluar lalu callback (dipakai hapus baris roster). */
+  function animateOut(node, done) {
+    if (!node) { done(); return; }
+    var finished = false;
+    var finish = function () {
+      if (finished) return;
+      finished = true;
+      done();
+    };
+    node.classList.add('anim-out');
+    node.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, 220); // jaring pengaman kalau animationend tak terpicu
+  }
+
+  // ---- Dialog (overlay .fixed dengan panel .dlg-panel di dalamnya) ----
+
+  function openDialog(node) {
+    if (!node) return;
+    node.classList.remove('dlg-closing', 'hidden');
+    replayAnim(node, 'dlg-open');
+  }
+
+  function closeDialog(node) {
+    if (!node || node.classList.contains('hidden')) return;
+    node.classList.remove('dlg-open');
+    node.classList.add('dlg-closing');
+    setTimeout(function () {
+      node.classList.add('hidden');
+      node.classList.remove('dlg-closing');
+    }, 170);
+  }
+
+  // ---- Skeleton (placeholder shimmer saat daftar dimuat) ----
+
+  /** HTML n kartu skeleton; hClass mis. 'h-24' utk kartu, 'h-16' utk baris. */
+  function skeletonList(n, hClass) {
+    var html = '';
+    for (var i = 0; i < n; i++) {
+      html += '<div class="skel ' + (hClass || 'h-24') + ' rounded-xl" aria-hidden="true"></div>';
+    }
+    return html;
+  }
+
+  // ---- Toast: notifikasi singkat non-blocking ----
+
+  function toast(msg, ms) {
+    var node = document.createElement('div');
+    node.className = 'toast';
+    node.setAttribute('role', 'status');
+    node.textContent = msg;
+    document.body.appendChild(node);
+    setTimeout(function () {
+      node.classList.add('toast-out');
+      setTimeout(function () { node.remove(); }, 250);
+    }, ms || 3200);
+  }
+
+  return {
+    btnBusy: btnBusy,
+    replayAnim: replayAnim,
+    staggerIn: staggerIn,
+    animateOut: animateOut,
+    openDialog: openDialog,
+    closeDialog: closeDialog,
+    skeletonList: skeletonList,
+    toast: toast
+  };
+})();
+</script>

@@ -1,0 +1,124 @@
+<style>
+/* ============================================================
+   Styles — animasi & visualisasi loading bersama (Index + Admin).
+   Prinsip: durasi pendek (120–250ms) supaya terasa gesit di HP
+   dan tidak mengganggu automation; prefers-reduced-motion dihormati.
+   ============================================================ */
+
+/* ---- Spinner (dipakai di tombol busy & overlay) ---- */
+.spin {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: .5em;
+  vertical-align: -.125em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 9999px;
+  animation: ui-spin .6s linear infinite;
+}
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+
+/* ---- Skeleton shimmer (placeholder daftar/kartu saat memuat) ---- */
+.skel {
+  position: relative;
+  overflow: hidden;
+  background: #e2e8f0; /* slate-200 */
+}
+.skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.65), transparent);
+  animation: ui-shimmer 1.2s infinite;
+}
+@keyframes ui-shimmer { 100% { transform: translateX(100%); } }
+
+/* ---- Masuknya view (login → dashboard → kuesioner) ---- */
+.view-enter { animation: ui-view-in .25s ease-out; }
+@keyframes ui-view-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- Elemen muncul (kartu, baris daftar, panel info, anomali) ----
+   Pakai bersama style="animation-delay" untuk efek stagger;
+   fill-mode backwards supaya tetap tersembunyi selama delay. */
+.anim-in { animation: ui-pop-in .28s cubic-bezier(.2, .8, .3, 1) backwards; }
+@keyframes ui-pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+/* Elemen keluar (baris roster dihapus) — JS menghapus node setelah selesai */
+.anim-out {
+  animation: ui-pop-out .16s ease-in forwards;
+  pointer-events: none;
+}
+@keyframes ui-pop-out {
+  to { opacity: 0; transform: translateY(-6px) scale(.97); }
+}
+
+/* ---- Dialog (bottom sheet di HP): backdrop fade + panel slide-up ---- */
+.dlg-open { animation: ui-fade-in .18s ease-out; }
+.dlg-open .dlg-panel { animation: ui-sheet-in .24s cubic-bezier(.2, .8, .3, 1.08); }
+.dlg-closing { animation: ui-fade-out .15s ease-in forwards; pointer-events: none; }
+.dlg-closing .dlg-panel { animation: ui-sheet-out .15s ease-in forwards; }
+@keyframes ui-fade-in  { from { opacity: 0; } }
+@keyframes ui-fade-out { to   { opacity: 0; } }
+@keyframes ui-sheet-in {
+  from { opacity: 0; transform: translateY(28px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ui-sheet-out { to { opacity: 0; transform: translateY(20px) scale(.98); } }
+
+/* ---- Panel dropdown SearchableSelect ---- */
+.ss-panel:not(.hidden) { animation: ui-dd-in .15s ease-out; }
+@keyframes ui-dd-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+.ss-panel li { transition: background-color .12s ease; }
+
+/* ---- Toast (notifikasi singkat di bawah layar) ---- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  z-index: 70;
+  max-width: min(92vw, 24rem);
+  background: #0f172a; /* slate-900 */
+  color: #f8fafc;
+  font-size: .875rem;
+  padding: .75rem 1rem;
+  border-radius: .75rem;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, .25);
+  animation: ui-toast-in .25s cubic-bezier(.2, .8, .3, 1);
+}
+.toast.toast-out { animation: ui-toast-out .2s ease-in forwards; }
+@keyframes ui-toast-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes ui-toast-out { to { opacity: 0; transform: translate(-50%, 10px); } }
+
+/* ---- Transisi halus elemen yang berganti status/warna ---- */
+#sync-indicator, #record-status-chip { transition: background-color .25s ease, color .25s ease; }
+button { transition: background-color .15s ease, opacity .15s ease, transform .1s ease; }
+button:active:not(:disabled) { transform: scale(.98); }
+input, select, textarea { transition: border-color .15s ease, box-shadow .15s ease; }
+
+/* Daftar yang sedang menunggu hasil mutasi server (halaman admin) */
+.busy-dim { opacity: .55; pointer-events: none; transition: opacity .2s ease; }
+
+/* ---- Hormati preferensi kurangi gerakan ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+  .skel::after { animation: none; }
+}
+</style>

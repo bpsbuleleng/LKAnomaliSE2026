@@ -66,13 +66,22 @@ var DraftLogic = (function () {
     return d.answers.roster[group];
   }
 
+  // jumlah_<group> ikut dipelihara di answers supaya draft (termasuk yang
+  // belum pernah submit) selalu membawa hitungan barisnya. Server menghitung
+  // ulang nilai yang sama di ComputedFields saat submit (otoritatif).
+  function syncRosterCount(d, group) {
+    d.answers['jumlah_' + group] = rosterRows(d, group).length;
+  }
+
   function addRosterRow(d, group, nowIso) {
     rosterRows(d, group).push({});
+    syncRosterCount(d, group);
     return touch(d, nowIso);
   }
 
   function removeRosterRow(d, group, index, nowIso) {
     rosterRows(d, group).splice(index, 1);
+    syncRosterCount(d, group);
     return touch(d, nowIso);
   }
 

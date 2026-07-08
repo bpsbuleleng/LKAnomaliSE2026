@@ -61,8 +61,9 @@ test('kuesioner dinamis: pertanyaan aktif sesuai jenis, soft-deleted tidak tampi
   await expect(f.getByTestId('q-r27c')).toHaveCount(0);
   // Soft-deleted (active=FALSE) TIDAK dirender
   await expect(f.getByTestId('q-catatan_lama')).toHaveCount(0);
-  // Roster anggota keluarga tersedia
+  // Roster anggota keluarga tersedia + badge jumlah baris mulai dari 0
   await expect(f.getByTestId('roster-add-anggota_keluarga')).toBeVisible();
+  await expect(f.getByTestId('roster-count-anggota_keluarga')).toHaveText('0 baris');
 
   // Bandingkan: kuesioner usaha berisi field usaha
   await f.getByTestId('record-back').click();
@@ -90,6 +91,8 @@ test('alur normal: isi (flat + roster) → auto-sync → simpan → buka lagi te
   await f.getByTestId('q-b1r6_n-1').fill('SALAH KETIK');
   await f.getByTestId('roster-remove-anggota_keluarga-1').click();
   await expect(f.getByTestId('roster-row-anggota_keluarga-1')).toHaveCount(0);
+  // Badge jumlah baris mengikuti add/remove (variabel jumlah_<roster> live)
+  await expect(f.getByTestId('roster-count-anggota_keluarga')).toHaveText('1 baris');
 
   // Auto-sync jalan tanpa tombol manual
   await expect(syncIndicator(f)).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
@@ -105,6 +108,7 @@ test('alur normal: isi (flat + roster) → auto-sync → simpan → buka lagi te
   await expect(f.getByTestId('q-b4r5')).toHaveValue('120');
   await expect(f.getByTestId('q-b1r6_n-0')).toHaveValue('KETUT ADI');
   await expect(f.getByTestId('roster-row-anggota_keluarga-1')).toHaveCount(0);
+  await expect(f.getByTestId('roster-count-anggota_keluarga')).toHaveText('1 baris');
 });
 
 test('OFFLINE: data selamat di IndexedDB + indikator belum-sync → online → auto-sync ke server', async ({ page, context }) => {

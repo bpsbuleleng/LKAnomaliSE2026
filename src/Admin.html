@@ -4,6 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <script src="https://cdn.tailwindcss.com"></script>
+  <?!= include('Styles'); ?>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
@@ -27,6 +28,7 @@
     <?!= include('AdminRulesView'); ?>
   </section>
 
+  <?!= include('UiFx'); ?>
   <?!= include('AdminLogic'); ?>
 
   <script>
@@ -74,7 +76,9 @@
 
     function showView(name) {
       document.querySelectorAll('.view').forEach(function (v) { v.classList.add('hidden'); });
-      el('admin-view-' + name).classList.remove('hidden');
+      var v = el('admin-view-' + name);
+      v.classList.remove('hidden');
+      UiFx.replayAnim(v, 'view-enter');
     }
 
     // ==== LOGIN (gerbang UX — keamanan tetap di cek per-panggilan server) ====
@@ -83,10 +87,10 @@
       ev.preventDefault();
       var pw = el('admin-password').value;
       el('admin-login-error').classList.add('hidden');
-      el('admin-login-submit').disabled = true;
+      UiFx.btnBusy(el('admin-login-submit'), true, 'Memeriksa…');
       gsRun('checkAdminPassword', pw)
         .then(function (res) {
-          el('admin-login-submit').disabled = false;
+          UiFx.btnBusy(el('admin-login-submit'), false);
           if (res && res.ok) {
             Adm.pw = pw;
             el('admin-password').value = '';
@@ -95,12 +99,14 @@
           } else {
             el('admin-login-error').textContent = 'Password salah.';
             el('admin-login-error').classList.remove('hidden');
+            UiFx.replayAnim(el('admin-login-error'), 'anim-in');
           }
         })
         .catch(function () {
-          el('admin-login-submit').disabled = false;
+          UiFx.btnBusy(el('admin-login-submit'), false);
           el('admin-login-error').textContent = 'Gagal terhubung ke server. Coba lagi.';
           el('admin-login-error').classList.remove('hidden');
+          UiFx.replayAnim(el('admin-login-error'), 'anim-in');
         });
     });
 
@@ -122,9 +128,18 @@
     el('jenis-tab-usaha').addEventListener('click', function () { setJenis('usaha'); });
     el('jenis-tab-keluarga').addEventListener('click', function () { setJenis('keluarga'); });
 
+    // Redupkan kedua daftar selagi mutasi (toggle/reorder) menunggu server —
+    // umpan balik instan sebelum loadAll menggambar ulang dengan skeleton.
+    function setListsBusy(busy) {
+      ['aq-list', 'ar-list'].forEach(function (id) {
+        el(id).classList.toggle('busy-dim', !!busy);
+      });
+    }
+
     function loadAll() {
-      el('aq-list').innerHTML = '<p class="text-sm text-slate-400">Memuat…</p>';
-      el('ar-list').innerHTML = '<p class="text-sm text-slate-400">Memuat…</p>';
+      setListsBusy(false);
+      el('aq-list').innerHTML = UiFx.skeletonList(3, 'h-28');
+      el('ar-list').innerHTML = UiFx.skeletonList(3, 'h-24');
       return Promise.all([
         gsRun('getQuestions', Adm.jenis, true),   // admin lihat SEMUA termasuk nonaktif
         gsRun('getRules', Adm.jenis, true),
@@ -179,11 +194,12 @@
         btns.appendChild(smallBtn('↓', 'aq-down-' + q.question_id, i === Adm.questions.length - 1, function () { moveQuestion(i, 1); }));
         btns.appendChild(smallBtn('Edit', 'aq-edit-' + q.question_id, false, function () { openQuestionDialog(q); }));
         btns.appendChild(smallBtn(q.active ? 'Nonaktifkan' : 'Aktifkan', 'aq-toggle-' + q.question_id, false, function () {
-          gsRun('setQuestionActive', Adm.pw, Adm.jenis, q.question_id, !q.active).then(afterMutation);
+          runMutation(gsRun('setQuestionActive', Adm.pw, Adm.jenis, q.question_id, !q.active));
         }, q.active ? 'text-red-600' : 'text-emerald-700'));
         row.appendChild(btns);
         wrap.appendChild(row);
       });
+      UiFx.staggerIn(wrap.children, 30);
     }
 
     function smallBtn(text, testid, disabled, onClick, extraCls) {
@@ -198,14 +214,28 @@
     }
 
     function afterMutation(res) {
-      if (!(res && res.ok)) { alert(serverError(res)); return; }
+      if (!(res && res.ok)) {
+        setListsBusy(false);
+        alert(serverError(res));
+        return;
+      }
       loadAll();
+    }
+
+    // Semua mutasi daftar lewat sini: dim → panggil server → afterMutation;
+    // gagal network pun daftar dibuka lagi (jangan terkunci dim).
+    function runMutation(promise) {
+      setListsBusy(true);
+      promise.then(afterMutation).catch(function () {
+        setListsBusy(false);
+        alert('Gagal terhubung ke server.');
+      });
     }
 
     function moveQuestion(index, delta) {
       var ids = Adm.questions.map(function (q) { return q.question_id; });
       var next = AdminLogic.moveItem(ids, index, delta);
-      gsRun('reorderQuestions', Adm.pw, Adm.jenis, next).then(afterMutation);
+      runMutation(gsRun('reorderQuestions', Adm.pw, Adm.jenis, next));
     }
 
     // -- dialog tambah/edit --
@@ -222,7 +252,7 @@
       el('aq-help').value = (q && q.help) || '';
       el('aq-error').classList.add('hidden');
       syncOptionsVisibility();
-      el('aq-dialog').classList.remove('hidden');
+      UiFx.openDialog(el('aq-dialog'));
     }
 
     function syncOptionsVisibility() {
@@ -230,7 +260,7 @@
     }
     el('aq-type').addEventListener('change', syncOptionsVisibility);
     el('aq-add').addEventListener('click', function () { openQuestionDialog(null); });
-    el('aq-cancel').addEventListener('click', function () { el('aq-dialog').classList.add('hidden'); });
+    el('aq-cancel').addEventListener('click', function () { UiFx.closeDialog(el('aq-dialog')); });
 
     el('aq-save').addEventListener('click', function () {
       var showErr = function (msg) {
@@ -257,14 +287,14 @@
         payload.question_id = el('aq-alias').value;
         call = gsRun('createQuestion', Adm.pw, Adm.jenis, payload);
       }
-      el('aq-save').disabled = true;
+      UiFx.btnBusy(el('aq-save'), true, 'Menyimpan…');
       call.then(function (res) {
-        el('aq-save').disabled = false;
+        UiFx.btnBusy(el('aq-save'), false);
         if (!(res && res.ok)) { showErr(serverError(res)); return; }
-        el('aq-dialog').classList.add('hidden');
+        UiFx.closeDialog(el('aq-dialog'));
         loadAll();
       }).catch(function () {
-        el('aq-save').disabled = false;
+        UiFx.btnBusy(el('aq-save'), false);
         showErr('Gagal terhubung ke server.');
       });
     });
@@ -296,11 +326,12 @@
         btns.className = 'flex gap-2';
         btns.appendChild(smallBtn('Edit', 'ar-edit-' + r.rule_id, false, function () { openRuleDialog(r); }));
         btns.appendChild(smallBtn(r.active ? 'Nonaktifkan' : 'Aktifkan', 'ar-toggle-' + r.rule_id, false, function () {
-          gsRun('setRuleActive', Adm.pw, r.rule_id, !r.active).then(afterMutation);
+          runMutation(gsRun('setRuleActive', Adm.pw, r.rule_id, !r.active));
         }, r.active ? 'text-red-600' : 'text-emerald-700'));
         row.appendChild(btns);
         wrap.appendChild(row);
       });
+      UiFx.staggerIn(wrap.children, 30);
     }
 
     // -- dialog rule --
@@ -393,11 +424,11 @@
         el('ar-json').value = '';
         renderValueSlot();
       }
-      el('ar-dialog').classList.remove('hidden');
+      UiFx.openDialog(el('ar-dialog'));
     }
 
     el('ar-add').addEventListener('click', function () { openRuleDialog(null); });
-    el('ar-cancel').addEventListener('click', function () { el('ar-dialog').classList.add('hidden'); });
+    el('ar-cancel').addEventListener('click', function () { UiFx.closeDialog(el('ar-dialog')); });
 
     function currentWhen() {
       if (el('ar-mode-simple').checked) {
@@ -422,14 +453,14 @@
       var call = Adm.editingR
         ? gsRun('updateRule', Adm.pw, Adm.editingR, payload)
         : gsRun('createRule', Adm.pw, Adm.jenis, payload);
-      el('ar-save').disabled = true;
+      UiFx.btnBusy(el('ar-save'), true, 'Menyimpan…');
       call.then(function (res) {
-        el('ar-save').disabled = false;
+        UiFx.btnBusy(el('ar-save'), false);
         if (!(res && res.ok)) { showErr(serverError(res)); return; }
-        el('ar-dialog').classList.add('hidden');
+        UiFx.closeDialog(el('ar-dialog'));
         loadAll();
       }).catch(function () {
-        el('ar-save').disabled = false;
+        UiFx.btnBusy(el('ar-save'), false);
         showErr('Gagal terhubung ke server.');
       });
     });
@@ -448,6 +479,7 @@
         resEl.textContent = text;
         resEl.className = 'text-sm font-semibold ' + cls;
         resEl.classList.remove('hidden');
+        UiFx.replayAnim(resEl, 'anim-in');
       };
       compEl.classList.add('hidden');
       var w = currentWhen();
@@ -458,7 +490,9 @@
         try { answers = JSON.parse(raw); }
         catch (e) { show('Contoh jawaban bukan JSON valid.', 'text-red-600'); return; }
       }
-      show('Menjalankan…', 'text-slate-500');
+      resEl.innerHTML = '<span class="spin"></span>Menjalankan…';
+      resEl.className = 'text-sm font-semibold text-slate-500';
+      resEl.classList.remove('hidden');
       gsRun('previewRule', Adm.pw, Adm.jenis, w.when, answers)
         .then(function (res) {
           if (!(res && res.ok)) { show(serverError(res), 'text-red-600'); return; }

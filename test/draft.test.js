@@ -62,6 +62,19 @@ test('roster: add/set/remove baris', () => {
   assert.deepEqual(d.answers.roster.anggota_keluarga, [{ b1r6_n: 'NI LUH SARI' }]);
 });
 
+test('roster: jumlah_<group> di answers selalu mengikuti banyak baris', () => {
+  const d = DraftLogic.newDraft('L-1', 'a@b.com', 'keluarga', T1);
+  assert.equal('jumlah_anggota_keluarga' in d.answers, false); // belum pernah disentuh
+  DraftLogic.addRosterRow(d, 'anggota_keluarga', T1);
+  DraftLogic.addRosterRow(d, 'anggota_keluarga', T1);
+  assert.equal(d.answers.jumlah_anggota_keluarga, 2);
+  DraftLogic.removeRosterRow(d, 'anggota_keluarga', 1, T2);
+  assert.equal(d.answers.jumlah_anggota_keluarga, 1);
+  DraftLogic.addRosterRow(d, 'meteran_listrik', T2); // grup lain independen
+  assert.equal(d.answers.jumlah_meteran_listrik, 1);
+  assert.equal(d.answers.jumlah_anggota_keluarga, 1);
+});
+
 test('fromServerRecord: dianggap sinkron & roster dijamin ada', () => {
   const d = DraftLogic.fromServerRecord({
     record_id: 'R-1', pml_email: 'a@b.com', jenis: 'usaha', status: 'draft',

@@ -4,6 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <script src="https://cdn.tailwindcss.com"></script>
+  <?!= include('Styles'); ?>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
@@ -11,6 +12,15 @@
   <?!= include('DashboardView'); ?>
   <?!= include('RecordView'); ?>
 
+  <!-- Overlay loading global: dipakai proses blocking singkat (buka record) -->
+  <div id="app-loading" class="hidden fixed inset-0 z-[60] bg-white/70 backdrop-blur-sm flex items-center justify-center">
+    <div class="flex flex-col items-center gap-3 anim-in">
+      <span class="spin text-sky-600" style="width:2.25rem;height:2.25rem;border-width:3px;margin:0"></span>
+      <p id="app-loading-text" class="text-sm font-medium text-slate-600">Memuat…</p>
+    </div>
+  </div>
+
+  <?!= include('UiFx'); ?>
   <?!= include('CascadeLogic'); ?>
   <?!= include('SearchableSelect'); ?>
   <?!= include('DraftLogic'); ?>
@@ -52,18 +62,26 @@
 
     function showView(name) {
       document.querySelectorAll('.view').forEach(function (v) { v.classList.add('hidden'); });
-      el('view-' + name).classList.remove('hidden');
+      var v = el('view-' + name);
+      v.classList.remove('hidden');
+      UiFx.replayAnim(v, 'view-enter');
     }
+
+    function showLoading(text) {
+      el('app-loading-text').textContent = text || 'Memuat…';
+      el('app-loading').classList.remove('hidden');
+    }
+    function hideLoading() { el('app-loading').classList.add('hidden'); }
 
     // ==== LOGIN ====
 
     function setLoginError(msg) {
       el('login-error').textContent = msg;
       el('login-error').classList.toggle('hidden', !msg);
+      if (msg) UiFx.replayAnim(el('login-error'), 'anim-in');
     }
     function setLoginBusy(busy) {
-      el('login-submit').disabled = busy;
-      el('login-submit').textContent = busy ? 'Memeriksa…' : 'Masuk';
+      UiFx.btnBusy(el('login-submit'), busy, 'Memeriksa…');
     }
 
     el('login-form').addEventListener('submit', function (ev) {
@@ -123,8 +141,13 @@
       Promise.all([serverP, localP]).then(function (vals) {
         el('record-loading').classList.add('hidden');
         var items = DraftLogic.mergeDashboard(vals[0] || [], vals[1]);
-        if (!items.length) { el('record-empty').classList.remove('hidden'); return; }
+        if (!items.length) {
+          el('record-empty').classList.remove('hidden');
+          UiFx.replayAnim(el('record-empty'), 'anim-in');
+          return;
+        }
         items.forEach(function (item) { el('record-list').appendChild(dashCard(item)); });
+        UiFx.staggerIn(el('record-list').children);
       });
     }
 
@@ -159,16 +182,16 @@
 
     // Jenis dipilih SEBELUM kuesioner terbuka (alur brief poin 3).
     el('new-record-btn').addEventListener('click', function () {
-      el('jenis-dialog').classList.remove('hidden');
+      UiFx.openDialog(el('jenis-dialog'));
     });
     el('jenis-cancel').addEventListener('click', function () {
-      el('jenis-dialog').classList.add('hidden');
+      UiFx.closeDialog(el('jenis-dialog'));
     });
     el('new-usaha').addEventListener('click', function () { startNewRecord('usaha'); });
     el('new-keluarga').addEventListener('click', function () { startNewRecord('keluarga'); });
 
     function startNewRecord(jenis) {
-      el('jenis-dialog').classList.add('hidden');
+      UiFx.closeDialog(el('jenis-dialog'));
       var localId = 'L-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       openQuestionnaire(DraftLogic.newDraft(localId, App.state.pml.email, jenis, nowIso()), null);
     }
@@ -180,9 +203,17 @@
     }
 
     function openExistingRecord(recordId) {
-      gsRun('getRecord', App.state.pml.email, recordId).then(function (res) {
-        if (res && res.ok) openQuestionnaire(DraftLogic.fromServerRecord(res.record), res.record.wilayah);
-      });
+      showLoading('Membuka record…');
+      gsRun('getRecord', App.state.pml.email, recordId)
+        .then(function (res) {
+          hideLoading();
+          if (res && res.ok) openQuestionnaire(DraftLogic.fromServerRecord(res.record), res.record.wilayah);
+          else UiFx.toast(SAVE_ERROR_MESSAGES[res && res.error] || 'Gagal membuka record.');
+        })
+        .catch(function () {
+          hideLoading();
+          UiFx.toast('Gagal membuka record — periksa koneksi lalu coba lagi.');
+        });
     }
 
     // ==== WILAYAH CASCADE (dari Fase 1) ====
@@ -228,15 +259,29 @@
     }
 
     function loadPpl(idsubsls) {
+      // Kartu tampil dulu dengan spinner, nama menyusul dari server.
+      el('ppl-info').classList.remove('hidden');
+      UiFx.replayAnim(el('ppl-info'), 'anim-in');
+      el('ppl-loading').classList.remove('hidden');
+      el('ppl-names').classList.add('hidden');
       gsRun('getPPL', idsubsls).then(function (res) {
+        el('ppl-loading').classList.add('hidden');
         if (res && res.ok) {
           el('ppl-nama').textContent = res.ppl.nmppl || '—';
           el('pml-nama').textContent = res.ppl.nmpml || '—';
-          el('ppl-info').classList.remove('hidden');
+          el('ppl-names').classList.remove('hidden');
+        } else {
+          clearPplDisplay();
         }
-      }).catch(function () { /* offline: info PPL menyusul saat online */ });
+      }).catch(function () {
+        // offline: sembunyikan lagi; info PPL tampil saat online & dipilih ulang
+        clearPplDisplay();
+      });
     }
-    function clearPplDisplay() { el('ppl-info').classList.add('hidden'); }
+    function clearPplDisplay() {
+      el('ppl-info').classList.add('hidden');
+      el('ppl-loading').classList.add('hidden');
+    }
 
     function wilayahFromIdsubsls(idsubsls) {
       var rows = rowsAssigned();
@@ -293,7 +338,9 @@
       el('anomaly-dialog').classList.add('hidden');
       clearPplDisplay();
       sel.kecamatan.reset(); sel.desa.reset(); sel.sls.reset(); sel.subsls.reset();
-      el('questions-container').innerHTML = '';
+      // Skeleton selagi pertanyaan dimuat (langsung terlihat saat view masuk).
+      el('questions-container').innerHTML =
+        UiFx.skeletonList(4, 'h-12') + '<div class="skel h-24 rounded-xl" aria-hidden="true"></div>';
       el('roster-container').innerHTML = '';
       refreshSyncIndicator();
       showView('record');
@@ -319,6 +366,7 @@
         if (DraftLogic.isDirty(draft)) attemptSync();
       }).catch(function () {
         Q.prefilling = false;
+        el('questions-container').innerHTML = '';
         showRecordError('Gagal memuat kuesioner — periksa koneksi lalu coba lagi.');
       });
     }
@@ -346,6 +394,8 @@
         }, ''));
       });
       groupOrder.forEach(function (g) { rc.appendChild(rosterSection(g, groups[g])); });
+      UiFx.staggerIn(qc.children, 25);
+      UiFx.staggerIn(rc.children, 25);
     }
 
     var INPUT_CLS = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500';
@@ -411,10 +461,19 @@
     function rosterSection(group, fields) {
       var sec = document.createElement('div');
       sec.className = 'space-y-3';
+      var head = document.createElement('div');
+      head.className = 'flex items-center justify-between';
       var title = document.createElement('p');
       title.className = 'text-sm font-semibold text-slate-600';
       title.textContent = rosterTitle(group);
-      sec.appendChild(title);
+      // Badge jumlah baris — cermin dari answers['jumlah_<group>'] yang
+      // dipelihara DraftLogic tiap tambah/hapus baris.
+      var count = document.createElement('span');
+      count.setAttribute('data-testid', 'roster-count-' + group);
+      count.className = 'text-xs font-semibold px-2 py-1 rounded-full bg-slate-200 text-slate-600';
+      head.appendChild(title);
+      head.appendChild(count);
+      sec.appendChild(head);
 
       var rowsWrap = document.createElement('div');
       rowsWrap.className = 'space-y-3';
@@ -428,17 +487,26 @@
       addBtn.addEventListener('click', function () {
         DraftLogic.addRosterRow(Q.draft, group, nowIso());
         afterEdit();
-        renderRosterRows(rowsWrap, group, fields);
+        renderRosterRows(rowsWrap, group, fields, count);
+        var last = rowsWrap.lastElementChild;
+        if (last) {
+          UiFx.replayAnim(last, 'anim-in');
+          if (last.scrollIntoView) last.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
       });
       sec.appendChild(addBtn);
 
-      renderRosterRows(rowsWrap, group, fields);
+      renderRosterRows(rowsWrap, group, fields, count);
       return sec;
     }
 
-    function renderRosterRows(rowsWrap, group, fields) {
+    function renderRosterRows(rowsWrap, group, fields, countEl) {
       var rows = (Q.draft.answers.roster && Q.draft.answers.roster[group]) || [];
       rowsWrap.innerHTML = '';
+      if (countEl) {
+        countEl.textContent = rows.length + ' baris';
+        UiFx.replayAnim(countEl, 'anim-in');
+      }
       if (!rows.length) {
         var empty = document.createElement('p');
         empty.className = 'text-sm text-slate-400';
@@ -462,9 +530,14 @@
         rm.className = 'h-11 px-3 rounded-lg text-red-600 text-sm font-medium active:bg-red-50';
         rm.textContent = 'Hapus';
         rm.addEventListener('click', function () {
-          DraftLogic.removeRosterRow(Q.draft, group, i, nowIso());
-          afterEdit();
-          renderRosterRows(rowsWrap, group, fields);
+          if (rowsWrap.dataset.removing) return; // tunggu animasi hapus selesai
+          rowsWrap.dataset.removing = '1';
+          UiFx.animateOut(card, function () {
+            delete rowsWrap.dataset.removing;
+            DraftLogic.removeRosterRow(Q.draft, group, i, nowIso());
+            afterEdit();
+            renderRosterRows(rowsWrap, group, fields, countEl);
+          });
         });
         head.appendChild(no);
         head.appendChild(rm);
@@ -556,13 +629,18 @@
         state = 'synced'; text = 'Tersync ke server ✓'; cls = 'bg-emerald-100 text-emerald-700';
       }
       ind.setAttribute('data-state', state);
-      ind.textContent = text;
+      if (state === 'syncing') {
+        ind.innerHTML = '<span class="spin"></span>' + text;
+      } else {
+        ind.textContent = text;
+      }
       ind.className = (state === 'idle' ? 'hidden ' : '') + 'text-xs font-medium px-2.5 py-1.5 rounded-full ' + cls;
     }
 
     function showRecordError(msg) {
       el('record-error').textContent = msg;
       el('record-error').classList.toggle('hidden', !msg);
+      if (msg) UiFx.replayAnim(el('record-error'), 'anim-in');
     }
 
     // ==== SIMPAN MANUAL & KELUAR ====
@@ -570,13 +648,19 @@
     el('record-save').addEventListener('click', function manualSave() {
       var d = Q.draft;
       if (!d) return;
+      UiFx.btnBusy(el('record-save'), true, 'Menyimpan…');
       if (Q.inFlight) { setTimeout(manualSave, 800); return; }
       clearTimeout(Q.debounceTimer);
       showRecordError('');
-      if (!DraftLogic.isDirty(d)) { enterDashboard(); return; }
+      if (!DraftLogic.isDirty(d)) {
+        UiFx.btnBusy(el('record-save'), false);
+        enterDashboard();
+        return;
+      }
       DraftStore.put(d)
         .then(function () { return attemptSync(); })
         .then(function (ok) {
+          UiFx.btnBusy(el('record-save'), false);
           if (ok) enterDashboard();
           else if (el('record-error').classList.contains('hidden')) {
             showRecordError('Belum bisa terhubung ke server — perubahan aman tersimpan lokal dan akan disync otomatis.');
@@ -590,15 +674,15 @@
       if (!d || !DraftLogic.isDirty(d)) { enterDashboard(); return; }
       // Pastikan versi terakhir tersimpan lokal sebelum user memutuskan.
       DraftStore.put(d);
-      el('exit-dialog').classList.remove('hidden');
+      UiFx.openDialog(el('exit-dialog'));
     });
 
     el('exit-cancel').addEventListener('click', function () {
-      el('exit-dialog').classList.add('hidden');
+      UiFx.closeDialog(el('exit-dialog'));
     });
 
     el('exit-save').addEventListener('click', function () {
-      el('exit-dialog').classList.add('hidden');
+      UiFx.closeDialog(el('exit-dialog'));
       var d = Q.draft;
       // Sync di background dengan referensi draft sendiri (Q.draft segera
       // di-null-kan oleh enterDashboard). Gagal pun data aman di IndexedDB.
@@ -623,7 +707,7 @@
     }
 
     el('exit-discard').addEventListener('click', function () {
-      el('exit-dialog').classList.add('hidden');
+      UiFx.closeDialog(el('exit-dialog'));
       var d = Q.draft;
       DraftStore.remove(d.localId).then(function () { enterDashboard(); });
     });
@@ -662,6 +746,7 @@
         li.appendChild(msg);
         listEl.appendChild(li);
       });
+      UiFx.staggerIn(listEl.children, 50);
     }
 
     // Panel "hasil pemeriksaan terakhir" — tampil saat membuka record submitted.
@@ -682,15 +767,15 @@
         ? anomalies.length + ' anomali terdeteksi. Anomali bersifat laporan — record sudah tersubmit, bisa diperbaiki lalu disubmit ulang.'
         : 'Tidak ada anomali terdeteksi. Record tersubmit. ✓';
       renderAnomalyList(el('anomaly-dialog-list'), anomalies);
-      el('anomaly-dialog').classList.remove('hidden');
+      UiFx.openDialog(el('anomaly-dialog'));
     }
 
     el('anomaly-done').addEventListener('click', function () {
-      el('anomaly-dialog').classList.add('hidden');
+      UiFx.closeDialog(el('anomaly-dialog'));
       enterDashboard();
     });
     el('anomaly-close').addEventListener('click', function () {
-      el('anomaly-dialog').classList.add('hidden');
+      UiFx.closeDialog(el('anomaly-dialog'));
     });
 
     var MISSING_INPUT_CLS = ['ring-2', 'ring-red-400', 'border-red-400'];
@@ -725,18 +810,19 @@
         }
       });
       el('missing-summary').classList.remove('hidden');
+      UiFx.replayAnim(el('missing-summary'), 'anim-in');
       var target = firstInput || el('missing-summary');
       if (target.scrollIntoView) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
 
     function setSubmitBusy(busy) {
-      el('record-submit').disabled = busy;
-      el('record-submit').textContent = busy ? 'Memeriksa…' : 'Submit & Periksa Anomali';
+      UiFx.btnBusy(el('record-submit'), busy, 'Memeriksa…');
     }
 
     el('record-submit').addEventListener('click', function doSubmit() {
       var d = Q.draft;
       if (!d) return;
+      setSubmitBusy(true); // busy sejak klik, termasuk saat menunggu sync jalan
       if (Q.inFlight) { setTimeout(doSubmit, 800); return; } // tunggu sync jalan selesai
       clearTimeout(Q.debounceTimer);
       showRecordError('');

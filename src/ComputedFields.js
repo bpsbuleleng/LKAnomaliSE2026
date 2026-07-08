@@ -26,6 +26,14 @@ var ComputedFields = (function () {
 
   function eqCode(v, code) { return Number(v) === code; }
 
+  // jumlah_<roster> = banyak BARIS roster grup itu, apa pun isinya — beda
+  // dari b1r9 yang hanya menghitung kode keberadaan 1/5. Client (DraftLogic)
+  // memelihara nilai yang sama live saat baris ditambah/dihapus; nilai di
+  // sini yang otoritatif karena dihitung ulang tiap submit.
+  function rosterCount(group) {
+    return function (a) { return rows(a, group).length; };
+  }
+
   // b1r9 = jumlah anggota roster dengan status keberadaan 1 (tinggal di sini)
   // atau 5 (anggota baru).
   function b1r9(a) {
@@ -71,6 +79,8 @@ var ComputedFields = (function () {
   // Elemen ke-3 = label tampilan (dipakai dropdown field di halaman config).
   var PIPELINE = {
     keluarga: [
+      ['jumlah_anggota_keluarga', rosterCount('anggota_keluarga'), 'Jumlah baris roster Anggota Keluarga (hitungan)'],
+      ['jumlah_meteran_listrik', rosterCount('meteran_listrik'), 'Jumlah baris roster Meteran Listrik (hitungan)'],
       ['b1r9', b1r9, 'Jumlah anggota keluarga (hitungan)'],
       ['b3r18c', b3r18c, 'Total pendapatan sebulan (hitungan)'],
       ['b4r16', b4r16, 'Total pengeluaran sebulan (hitungan)'],
