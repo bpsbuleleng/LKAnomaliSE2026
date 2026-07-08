@@ -137,6 +137,26 @@ test('kondisi roster dievaluasi dengan scope BARIS (tidak melihat field datar)',
   assert.equal(ev(when, { datar: 1, roster: { g: [{ lain: 9 }] } }), false);
 });
 
+// ==== leaf formula (aritmetika antar-field, parser aman) ====
+
+test('formula: perbandingan aritmetika antar-field; bagi 0 → false', () => {
+  assert.equal(ev({ formula: 'r26b / r26_total >= 0.5' }, { r26b: 30, r26_total: 50 }), true);
+  assert.equal(ev({ formula: 'r26b / r26_total >= 0.5' }, { r26b: 30, r26_total: 0 }), false);
+});
+
+test('formula: bisa dipakai di dalam all/any bersama leaf biasa', () => {
+  const when = { all: [
+    { field: 'r13b1', op: '==', value: 2 },
+    { formula: 'r26b / r26_total > 0.5' }
+  ] };
+  assert.equal(ev(when, { r13b1: 2, r26b: 40, r26_total: 50 }), true);  // 0,8 > 0,5
+  assert.equal(ev(when, { r13b1: 2, r26b: 10, r26_total: 50 }), false); // 0,2 > 0,5 gagal
+});
+
+test('formula: sintaks rusak → throw (ditangkap per-rule oleh evaluateRules)', () => {
+  assert.throws(() => ev({ formula: 'r26b / r26_total' }, {}), /perbandingan/);
+});
+
 // ==== when sebagai string JSON (bentuk kolom sheet di Fase 5) ====
 
 test('when string JSON di-parse; JSON rusak throw', () => {
@@ -179,6 +199,8 @@ test('validateWhen: menerima leaf, kombinator bersarang, roster_*, field2, when 
     { roster_all: 'g', condition: { any: [{ field: 'x', op: '==', value: 1 }] } },
     { roster_count: 'g', condition: { field: 'x', op: '==', value: 1 }, op: '>', value: 2 },
     { roster_count: 'g', op: '>=', value: 1 }, // tanpa condition = hitung semua baris
+    { formula: '(r26a + r26b) / r27c >= 0.5' }, // leaf formula
+    { all: [{ field: 'x', op: '>', value: 0 }, { formula: 'a / b < 1' }] }, // formula di dalam kombinator
     '{"field":"x","op":"==","value":1}'
   ];
   for (const w of valid) {
@@ -200,9 +222,12 @@ test('validateWhen: menolak struktur rusak — TERMASUK cabang dalam yang lolos 
     { all: 'bukan-array' },
     { roster_any: 'g' },                          // tanpa condition
     { roster_count: 'g', op: 'in', value: [1] },  // op count tidak numerik
+    { formula: 'r26b / r26_total' },             // formula tanpa perbandingan
+    { formula: 'a && b > 1' },                    // formula karakter asing
     // Short-circuit killer: leaf pertama valid, cabang KEDUA rusak —
     // evaluate() dengan answers kosong tidak akan menyentuh cabang kedua.
-    { all: [{ field: 'x', op: '==', value: 1 }, { field: 'y', op: 'RUSAK' }] }
+    { all: [{ field: 'x', op: '==', value: 1 }, { field: 'y', op: 'RUSAK' }] },
+    { all: [{ field: 'x', op: '==', value: 1 }, { formula: '(a + b' }] } // formula rusak di cabang dalam
   ];
   for (const w of invalid) {
     assert.equal(RuleEvaluator.validateWhen(w).ok, false, 'harusnya invalid: ' + JSON.stringify(w));

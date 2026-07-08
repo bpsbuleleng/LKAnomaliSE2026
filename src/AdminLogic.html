@@ -136,9 +136,35 @@ var AdminLogic = (function () {
   }
 
   /**
+   * Rakit SATU leaf formula dari baris ber-kind 'formula'.
+   * @param cond {formula} — teks ekspresi (mis. "r26b / r26_total >= 0.5").
+   * @param metaOf fungsi (fieldId) → fieldMeta|null; dipakai cek "field dikenal"
+   *        (identifier di formula HARUS field yang ada). Bila metaOf null,
+   *        cek keberadaan field dilewati (server tetap memvalidasi sintaks).
+   * Cek di sini sengaja RINGAN (UX cepat) — parser aman & validasi penuh ada
+   * di server (Formula.js / RuleEvaluator.validateWhen) di tiap simpan/preview.
+   */
+  function buildFormulaLeaf(cond, metaOf) {
+    var t = String((cond && cond.formula) == null ? '' : cond.formula).trim();
+    if (!t) return { ok: false, error: 'Formula belum diisi.' };
+    if (!/(==|!=|>=|<=|>|<)/.test(t)) {
+      return { ok: false, error: 'Formula harus berisi satu perbandingan, mis. "r26b / r26_total >= 0.5".' };
+    }
+    if (metaOf) {
+      var idents = t.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+      for (var i = 0; i < idents.length; i++) {
+        if (!metaOf(idents[i])) return { ok: false, error: 'Field tidak dikenal: "' + idents[i] + '" — pakai alias dari panel Variabel.' };
+      }
+    }
+    return { ok: true, when: { formula: t } };
+  }
+
+  /**
    * Gabungkan beberapa kondisi jadi satu `when`.
    * @param combinator 'all' (DAN) | 'any' (ATAU).
-   * @param conditions array baris kondisi.
+   * @param conditions array baris kondisi; tiap baris ber-`kind` 'simple'
+   *        (field/op/value) ATAU 'formula' (teks ekspresi). kind kosong =
+   *        'simple' (kompatibel mundur).
    * @param metaOf fungsi (fieldId) → fieldMeta|null (menjaga fungsi ini murni).
    * 1 kondisi → leaf polos (tanpa pembungkus) supaya kompatibel dgn rule lama;
    * ≥2 kondisi → { all:[...] } / { any:[...] }.
@@ -148,8 +174,14 @@ var AdminLogic = (function () {
     if (!conditions || !conditions.length) return { ok: false, error: 'Tambahkan minimal 1 kondisi.' };
     var leaves = [];
     for (var i = 0; i < conditions.length; i++) {
-      var meta = metaOf ? metaOf(conditions[i].field) : (conditions[i].fieldMeta || null);
-      var r = buildLeaf(conditions[i], meta);
+      var c = conditions[i];
+      var r;
+      if (c && c.kind === 'formula') {
+        r = buildFormulaLeaf(c, metaOf);
+      } else {
+        var meta = metaOf ? metaOf(c.field) : (c.fieldMeta || null);
+        r = buildLeaf(c, meta);
+      }
       if (!r.ok) return { ok: false, error: 'Kondisi ' + (i + 1) + ': ' + r.error, index: i };
       leaves.push(r.when);
     }
@@ -166,10 +198,15 @@ var AdminLogic = (function () {
     if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) return null;
     if ('all' in leaf || 'any' in leaf ||
         'roster_any' in leaf || 'roster_all' in leaf || 'roster_count' in leaf) return null;
+    // Leaf formula → baris kind 'formula' (teks apa adanya; field TAK dicek di
+    // sini supaya rule bisa dibuka & diperbaiki walau alias-nya sedang salah).
+    if (typeof leaf.formula === 'string') {
+      return { kind: 'formula', formula: leaf.formula, field: '', op: '', compare: 'value', value: '', field2: '' };
+    }
     if (typeof leaf.field !== 'string' || !leaf.field) return null;
     if (isKnownField && !isKnownField(leaf.field)) return null;
     if (SIMPLE_LEAF_OPS.indexOf(leaf.op) === -1) return null;
-    var cond = { field: leaf.field, op: leaf.op, compare: 'value', value: '', field2: '' };
+    var cond = { kind: 'simple', field: leaf.field, op: leaf.op, compare: 'value', value: '', field2: '' };
     if (leaf.op === 'empty' || leaf.op === 'not_empty') return cond;
     if ('field2' in leaf) {
       if (CMP_OPS.indexOf(leaf.op) === -1) return null;
@@ -211,6 +248,33 @@ var AdminLogic = (function () {
   }
 
   /**
+   * Kumpulkan semua alias field yang dirujuk sebuah `when` (leaf field/field2,
+   * identifier di formula, kondisi dalam roster_any/all/count) — dipakai
+   * tombol "Isi template" supaya hanya menampilkan variabel yang relevan,
+   * bukan seluruh daftar pertanyaan. Menyusuri all/any/roster_* bersarang
+   * berapa pun dalamnya. → array alias unik, urutan kemunculan.
+   */
+  function fieldsUsedInWhen(when) {
+    var seen = {};
+    var out = [];
+    function add(id) { if (id && !seen[id]) { seen[id] = true; out.push(id); } }
+    function walk(node) {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+      if (Array.isArray(node.all)) { node.all.forEach(walk); return; }
+      if (Array.isArray(node.any)) { node.any.forEach(walk); return; }
+      if (node.roster_any || node.roster_all || node.roster_count) { walk(node.condition); return; }
+      if (typeof node.formula === 'string') {
+        (node.formula.match(/[A-Za-z_][A-Za-z0-9_]*/g) || []).forEach(add);
+        return;
+      }
+      if (typeof node.field === 'string') add(node.field);
+      if (typeof node.field2 === 'string') add(node.field2);
+    }
+    walk(when);
+    return out;
+  }
+
+  /**
    * Template contoh jawaban untuk panel Preview: field datar kosong + tiap
    * grup roster satu baris kosong — admin tinggal mengisi nilai.
    */
@@ -237,8 +301,10 @@ var AdminLogic = (function () {
     moveItem: moveItem,
     moveToIndex: moveToIndex,
     buildLeaf: buildLeaf,
+    buildFormulaLeaf: buildFormulaLeaf,
     buildSimpleGroup: buildSimpleGroup,
     classifySimpleGroup: classifySimpleGroup,
+    fieldsUsedInWhen: fieldsUsedInWhen,
     buildAnswersTemplate: buildAnswersTemplate,
     CMP_OPS: CMP_OPS
   };

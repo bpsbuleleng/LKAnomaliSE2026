@@ -157,7 +157,7 @@ test('classifySimpleGroup: leaf polos → 1 kondisi combinator all', () => {
   const res = AdminLogic.classifySimpleGroup({ field: 'b4r5', op: '>', value: 500 }, known);
   assert.equal(res.simple, true);
   assert.equal(res.combinator, 'all');
-  assert.deepEqual(res.conditions, [{ field: 'b4r5', op: '>', compare: 'value', value: 500, field2: '' }]);
+  assert.deepEqual(res.conditions, [{ kind: 'simple', field: 'b4r5', op: '>', compare: 'value', value: 500, field2: '' }]);
 });
 
 test('classifySimpleGroup: all/any dengan leaf polos → banyak kondisi; field2 → compare field', () => {
@@ -167,9 +167,55 @@ test('classifySimpleGroup: all/any dengan leaf polos → banyak kondisi; field2 
   assert.equal(res.simple, true);
   assert.equal(res.combinator, 'any');
   assert.deepEqual(res.conditions, [
-    { field: 'b1r9', op: '>', compare: 'value', value: 1, field2: '' },
-    { field: 'b3r18c', op: '<', compare: 'field', value: '', field2: 'b4r16' }
+    { kind: 'simple', field: 'b1r9', op: '>', compare: 'value', value: 1, field2: '' },
+    { kind: 'simple', field: 'b3r18c', op: '<', compare: 'field', value: '', field2: 'b4r16' }
   ]);
+});
+
+// ==== buildFormulaLeaf + kondisi campur (simple + formula) ====
+
+test('buildFormulaLeaf: teks valid → { formula }; kosong / tanpa perbandingan / field asing ditolak', () => {
+  const meta = (id) => ['r26b', 'r26_total'].indexOf(id) !== -1 ? { type: 'number' } : null;
+  assert.deepEqual(AdminLogic.buildFormulaLeaf({ formula: ' r26b / r26_total >= 0.5 ' }, meta).when,
+    { formula: 'r26b / r26_total >= 0.5' });
+  assert.equal(AdminLogic.buildFormulaLeaf({ formula: '' }, meta).ok, false);
+  assert.equal(AdminLogic.buildFormulaLeaf({ formula: 'r26b / r26_total' }, meta).ok, false); // tanpa perbandingan
+  const asing = AdminLogic.buildFormulaLeaf({ formula: 'tidak_ada / r26_total > 1' }, meta);
+  assert.equal(asing.ok, false);
+  assert.match(asing.error, /tidak dikenal/);
+});
+
+test('buildSimpleGroup: campur kondisi simple + formula → all[] berisi keduanya', () => {
+  const meta = (id) => ['r13b1', 'r26b', 'r26_total'].indexOf(id) !== -1 ? { type: 'number' } : null;
+  const conds = [
+    { kind: 'simple', field: 'r13b1', op: '==', compare: 'value', value: '2' },
+    { kind: 'formula', formula: 'r26b / r26_total > 0.5' }
+  ];
+  assert.deepEqual(AdminLogic.buildSimpleGroup('all', conds, meta).when, {
+    all: [{ field: 'r13b1', op: '==', value: 2 }, { formula: 'r26b / r26_total > 0.5' }]
+  });
+});
+
+test('buildSimpleGroup: 1 kondisi formula → leaf { formula } polos', () => {
+  const meta = (id) => ({ r26b: { type: 'number' }, r26_total: { type: 'number' } }[id] || null);
+  assert.deepEqual(
+    AdminLogic.buildSimpleGroup('all', [{ kind: 'formula', formula: 'r26b / r26_total >= 0.5' }], meta).when,
+    { formula: 'r26b / r26_total >= 0.5' });
+});
+
+test('classifySimpleGroup: leaf formula → kondisi kind formula (round-trip)', () => {
+  const single = AdminLogic.classifySimpleGroup({ formula: 'r26b / r26_total >= 0.5' }, known);
+  assert.equal(single.simple, true);
+  assert.deepEqual(single.conditions, [
+    { kind: 'formula', formula: 'r26b / r26_total >= 0.5', field: '', op: '', compare: 'value', value: '', field2: '' }
+  ]);
+  const mixed = AdminLogic.classifySimpleGroup({
+    all: [{ field: 'b4r5', op: '>', value: 500 }, { formula: 'a / b > 1' }]
+  }, known);
+  assert.equal(mixed.simple, true);
+  assert.equal(mixed.conditions[0].kind, 'simple');
+  assert.equal(mixed.conditions[1].kind, 'formula');
+  assert.equal(mixed.conditions[1].formula, 'a / b > 1');
 });
 
 test('classifySimpleGroup: nested/roster/field tak dikenal → simple:false (jatuh ke Lanjutan)', () => {
@@ -183,6 +229,40 @@ test('classifySimpleGroup round-trip buildSimpleGroup', () => {
   const cls = AdminLogic.classifySimpleGroup(when, known);
   const rebuilt = AdminLogic.buildSimpleGroup(cls.combinator, cls.conditions, metaOf);
   assert.deepEqual(rebuilt.when, when);
+});
+
+// ==== fieldsUsedInWhen (dipakai tombol "Isi template") ====
+
+test('fieldsUsedInWhen: leaf polos, field2, dan nested all/any', () => {
+  const when = {
+    all: [
+      { field: 'r13b1', op: '==', value: 2 },
+      { any: [{ field: 'b3r18c', op: '<', field2: 'b4r16' }, { field: 'b1r9', op: '>', value: 10 }] }
+    ]
+  };
+  assert.deepEqual(AdminLogic.fieldsUsedInWhen(when), ['r13b1', 'b3r18c', 'b4r16', 'b1r9']);
+});
+
+test('fieldsUsedInWhen: identifier di formula ikut terkumpul', () => {
+  assert.deepEqual(
+    AdminLogic.fieldsUsedInWhen({ formula: 'r26b / ( r26a + r26b + r26c ) >= 0.5' }),
+    ['r26b', 'r26a', 'r26c']
+  );
+});
+
+test('fieldsUsedInWhen: roster_any/all/count menyusuri condition di dalamnya', () => {
+  const when = {
+    roster_any: 'anggota_keluarga',
+    condition: { all: [{ field: 'b1r8_n', op: 'in', value: [1, 2] }, { field: 'b1r11_n', op: 'in', value: [1, 3, 4] }] }
+  };
+  assert.deepEqual(AdminLogic.fieldsUsedInWhen(when), ['b1r8_n', 'b1r11_n']);
+});
+
+test('fieldsUsedInWhen: duplikat dibuang, when kosong/tak dikenal → array kosong', () => {
+  const when = { all: [{ field: 'b4r5', op: '>', value: 1 }, { field: 'b4r5', op: '<', value: 100 }] };
+  assert.deepEqual(AdminLogic.fieldsUsedInWhen(when), ['b4r5']);
+  assert.deepEqual(AdminLogic.fieldsUsedInWhen(null), []);
+  assert.deepEqual(AdminLogic.fieldsUsedInWhen({}), []);
 });
 
 // ==== buildAnswersTemplate ====

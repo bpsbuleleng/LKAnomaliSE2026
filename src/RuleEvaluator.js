@@ -12,6 +12,8 @@
  *                                     supaya "semua anggota X" tidak vakum-benar)
  *   { roster_count: grup, condition?, op, value }
  *                                   — jumlah baris yang memenuhi, dibanding value
+ *   { formula: "a / b >= 0.5" }     — satu perbandingan aritmetika antar-field
+ *                                     (parser aman di Formula.js, tanpa eval)
  *
  * Semantik nilai kosong (undefined/null/''): SEMUA operator perbandingan
  * menghasilkan false (data belum terisi ≠ anomali) — kecuali `empty` (true)
@@ -22,6 +24,12 @@
  * menggagalkan submit; rule itu dilewati dan dicatat di `errors`.
  */
 var RuleEvaluator = (function () {
+  // GAS: Formula global antar-file; Node: require (ditunda ke saat panggil).
+  function formulaLib() {
+    if (typeof module !== 'undefined' && module.exports) return require('./Formula.js');
+    return Formula;
+  }
+
   function isMissing(v) {
     return v === undefined || v === null || v === '';
   }
@@ -116,6 +124,7 @@ var RuleEvaluator = (function () {
       }
       throw new Error('roster_count butuh op perbandingan numerik, dapat: ' + when.op);
     }
+    if (typeof when.formula === 'string') return formulaLib().evaluate(when.formula, answers);
     if (typeof when.field === 'string') return evalLeaf(when, answers);
 
     throw new Error('Bentuk kondisi tidak dikenali: ' + JSON.stringify(Object.keys(when)));
@@ -151,6 +160,10 @@ var RuleEvaluator = (function () {
       if (COUNT_OPS.indexOf(node.op) === -1) throw new Error('roster_count butuh op perbandingan numerik');
       if (isNaN(Number(node.value))) throw new Error('roster_count butuh value numerik');
       if (node.condition) validateNode(node.condition);
+      return;
+    }
+    if (typeof node.formula === 'string') {
+      formulaLib().compile(node.formula); // sintaks rusak → throw (INVALID_WHEN saat simpan)
       return;
     }
     if (typeof node.field === 'string' && node.field) {

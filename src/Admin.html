@@ -606,8 +606,10 @@
     // DOM saat perlu (syncCondRows) supaya render ulang tak menghilangkan
     // ketikan. buildSimpleGroup (AdminLogic) merangkainya jadi `when`.
 
+    // Label singkat (shortLabel) supaya opsi dropdown tak terpotong di tengah
+    // kata pada select yang sempit — sama seperti panel Variabel.
     function fillFieldSelect(sel, selected) {
-      Adm.fields.forEach(function (f) { sel.appendChild(new Option(f.id + ' — ' + f.label, f.id)); });
+      Adm.fields.forEach(function (f) { sel.appendChild(new Option(f.id + ' — ' + shortLabel(f.label), f.id)); });
       if (selected) sel.value = selected;
     }
 
@@ -642,13 +644,19 @@
     }
 
     // Baca kembali nilai DOM tiap baris → Adm.condRows (sebelum render ulang).
+    // Tiap baris ber-kind 'simple' (field/op/value) ATAU 'formula' (teks).
     function syncCondRows() {
       var rows = el('ar-cond-list').querySelectorAll('.ar-cond-row');
       Adm.condRows = Array.prototype.map.call(rows, function (row) {
+        if (row.dataset.kind === 'formula') {
+          var fx = row.querySelector('.ar-cond-formula');
+          return { kind: 'formula', formula: fx ? fx.value : '', field: '', op: '', compare: 'value', value: '', field2: '' };
+        }
         var cmp = row.querySelector('.ar-cond-compare');
         var f2 = row.querySelector('.ar-cond-field2');
         var val = row.querySelector('.ar-cond-value');
         return {
+          kind: 'simple',
           field: row.querySelector('.ar-cond-field').value,
           op: row.querySelector('.ar-cond-op').value,
           compare: cmp ? cmp.value : 'value',
@@ -662,20 +670,30 @@
       var list = el('ar-cond-list');
       list.innerHTML = '';
       Adm.condRows.forEach(function (cond, idx) {
-        // op non-perbandingan tak bisa compare='field' — paksa balik ke value.
-        var canCompareField = AdminLogic.CMP_OPS.indexOf(cond.op) !== -1;
-        if (!canCompareField && cond.compare === 'field') cond.compare = 'value';
+        var isFormula = cond.kind === 'formula';
 
         var row = document.createElement('div');
         row.className = 'ar-cond-row rounded-xl border border-slate-200 p-3 space-y-2';
         row.setAttribute('data-testid', 'ar-cond-' + idx);
+        row.dataset.kind = isFormula ? 'formula' : 'simple';
 
+        // Header: label + pemilih tipe (Sederhana/Formula) + Hapus.
         var head = document.createElement('div');
-        head.className = 'flex items-center justify-between';
+        head.className = 'flex items-center gap-2';
         var lbl = document.createElement('span');
-        lbl.className = 'text-xs font-semibold text-slate-400';
+        lbl.className = 'text-xs font-semibold text-slate-400 mr-auto';
         lbl.textContent = 'Kondisi ' + (idx + 1);
         head.appendChild(lbl);
+
+        var typeSel = document.createElement('select');
+        typeSel.className = 'ar-cond-type h-8 px-2 text-xs rounded-lg border border-slate-300 bg-white';
+        typeSel.setAttribute('data-testid', 'ar-cond-type-' + idx);
+        typeSel.appendChild(new Option('Sederhana', 'simple'));
+        typeSel.appendChild(new Option('Formula', 'formula'));
+        typeSel.value = isFormula ? 'formula' : 'simple';
+        typeSel.addEventListener('change', function () { setRowType(idx, typeSel.value); });
+        head.appendChild(typeSel);
+
         var rm = document.createElement('button');
         rm.type = 'button';
         rm.textContent = 'Hapus';
@@ -686,57 +704,99 @@
         head.appendChild(rm);
         row.appendChild(head);
 
-        // Controls dalam satu baris flex-wrap: sejajar di layar lebar (lebih
-        // sedikit scroll, lebih gampang membandingkan kondisi), bertumpuk di HP.
-        var controls = document.createElement('div');
-        controls.className = 'flex flex-wrap gap-2';
-        row.appendChild(controls);
-
-        var fieldSel = document.createElement('select');
-        fieldSel.className = 'ar-cond-field flex-1 min-w-[9.5rem] h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
-        fieldSel.setAttribute('data-testid', 'ar-cond-field-' + idx);
-        fillFieldSelect(fieldSel, cond.field);
-        fieldSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
-        controls.appendChild(fieldSel);
-
-        var opSel = document.createElement('select');
-        opSel.className = 'ar-cond-op flex-1 min-w-[9.5rem] h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
-        opSel.setAttribute('data-testid', 'ar-cond-op-' + idx);
-        RULE_OPS.forEach(function (o) { opSel.appendChild(new Option(o[1], o[0])); });
-        opSel.value = cond.op;
-        opSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
-        controls.appendChild(opSel);
-
-        // Pilih pembanding (Nilai / Field lain) — hanya untuk operator banding.
-        if (canCompareField) {
-          var cmpSel = document.createElement('select');
-          cmpSel.className = 'ar-cond-compare flex-1 min-w-[9.5rem] h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
-          cmpSel.setAttribute('data-testid', 'ar-cond-compare-' + idx);
-          cmpSel.appendChild(new Option('Bandingkan dengan nilai', 'value'));
-          cmpSel.appendChild(new Option('Bandingkan dengan field lain', 'field'));
-          cmpSel.value = cond.compare === 'field' ? 'field' : 'value';
-          cmpSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
-          controls.appendChild(cmpSel);
-        }
-
-        var slot = document.createElement('div');
-        slot.className = 'ar-cond-value-slot flex-1 min-w-[9.5rem]';
-        var ctrl = condValueControl(cond, idx);
-        if (ctrl) slot.appendChild(ctrl);
-        controls.appendChild(slot);
+        if (isFormula) { renderFormulaBody(row, cond, idx); }
+        else { renderSimpleBody(row, cond, idx); }
 
         list.appendChild(row);
       });
       el('ar-combinator-wrap').classList.toggle('hidden', Adm.condRows.length < 2);
     }
 
-    function newCondition() {
-      return { field: (Adm.fields[0] ? Adm.fields[0].id : ''), op: '==', compare: 'value', value: '', field2: '' };
+    // Baris kind 'simple': field / operator / pembanding / value.
+    function renderSimpleBody(row, cond, idx) {
+      // op non-perbandingan tak bisa compare='field' — paksa balik ke value.
+      var canCompareField = AdminLogic.CMP_OPS.indexOf(cond.op) !== -1;
+      if (!canCompareField && cond.compare === 'field') cond.compare = 'value';
+
+      // Grid 2 kolom tetap (1 kolom di HP): setiap kontrol dapat sel sendiri
+      // yang konsisten, tak ada kotak "nyasar" melebar sendirian saat jumlah
+      // kontrol ganjil (beda dari flex-wrap lama yang bikin tampilan berantakan).
+      var controls = document.createElement('div');
+      controls.className = 'grid grid-cols-1 sm:grid-cols-2 gap-2';
+      row.appendChild(controls);
+
+      var fieldSel = document.createElement('select');
+      fieldSel.className = 'ar-cond-field w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+      fieldSel.setAttribute('data-testid', 'ar-cond-field-' + idx);
+      fillFieldSelect(fieldSel, cond.field);
+      fieldSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
+      controls.appendChild(fieldSel);
+
+      var opSel = document.createElement('select');
+      opSel.className = 'ar-cond-op w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+      opSel.setAttribute('data-testid', 'ar-cond-op-' + idx);
+      RULE_OPS.forEach(function (o) { opSel.appendChild(new Option(o[1], o[0])); });
+      opSel.value = cond.op;
+      opSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
+      controls.appendChild(opSel);
+
+      // Pilih pembanding (Nilai tetap / Field lain) — hanya untuk operator banding.
+      if (canCompareField) {
+        var cmpSel = document.createElement('select');
+        cmpSel.className = 'ar-cond-compare w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white';
+        cmpSel.setAttribute('data-testid', 'ar-cond-compare-' + idx);
+        cmpSel.appendChild(new Option('Bandingkan: nilai tetap', 'value'));
+        cmpSel.appendChild(new Option('Bandingkan: field lain', 'field'));
+        cmpSel.value = cond.compare === 'field' ? 'field' : 'value';
+        cmpSel.addEventListener('change', function () { syncCondRows(); renderConditions(); });
+        controls.appendChild(cmpSel);
+      }
+
+      var slot = document.createElement('div');
+      slot.className = 'ar-cond-value-slot';
+      var ctrl = condValueControl(cond, idx);
+      if (ctrl) slot.appendChild(ctrl);
+      controls.appendChild(slot);
+    }
+
+    // Baris kind 'formula': satu textarea ekspresi (klik chip Variabel menyisip).
+    function renderFormulaBody(row, cond, idx) {
+      var ta = document.createElement('textarea');
+      ta.className = 'ar-cond-formula w-full px-3 py-2 text-base rounded-xl border border-slate-300 font-mono';
+      ta.setAttribute('data-testid', 'ar-cond-formula-' + idx);
+      ta.rows = 2;
+      ta.spellcheck = false;
+      ta.placeholder = 'mis. r26b / r26_total >= 0.5';
+      ta.value = cond.formula || '';
+      ta.addEventListener('focus', function () { Adm.activeFormulaEl = ta; });
+      row.appendChild(ta);
+      var hint = document.createElement('p');
+      hint.className = 'text-xs text-slate-400';
+      hint.innerHTML = 'Satu perbandingan aritmetika: <span class="font-mono">+ - * / ( )</span> lalu ' +
+        '<span class="font-mono">== != &gt; &gt;= &lt; &lt;=</span>. Pakai alias dari panel Variabel di bawah.';
+      row.appendChild(hint);
+    }
+
+    function newCondition(kind) {
+      if (kind === 'formula') {
+        return { kind: 'formula', formula: '', field: '', op: '', compare: 'value', value: '', field2: '' };
+      }
+      return { kind: 'simple', field: (Adm.fields[0] ? Adm.fields[0].id : ''), op: '==', compare: 'value', value: '', field2: '' };
+    }
+
+    // Ganti tipe satu baris (Sederhana ⇄ Formula) tanpa mengubah baris lain.
+    function setRowType(idx, kind) {
+      syncCondRows();
+      var c = Adm.condRows[idx];
+      c.kind = kind === 'formula' ? 'formula' : 'simple';
+      if (c.kind === 'formula' && c.formula == null) c.formula = '';
+      if (c.kind === 'simple' && !c.field) c.field = (Adm.fields[0] ? Adm.fields[0].id : '');
+      renderConditions();
     }
 
     function addCondition() {
       syncCondRows();
-      Adm.condRows.push(newCondition());
+      Adm.condRows.push(newCondition('simple'));
       renderConditions();
     }
 
@@ -750,23 +810,127 @@
     el('ar-cond-add').addEventListener('click', addCondition);
     el('ar-combinator').addEventListener('change', function () { Adm.combinator = el('ar-combinator').value; });
 
-    function setRuleMode(mode) {
-      el('ar-mode-simple').checked = mode === 'simple';
-      el('ar-mode-advanced').checked = mode === 'advanced';
-      el('ar-simple-wrap').classList.toggle('hidden', mode !== 'simple');
-      el('ar-adv-wrap').classList.toggle('hidden', mode !== 'advanced');
+    function isKnownField(id) { return fieldMeta(id) !== null; }
+
+    // Builder kondisi vs editor JSON: JSON dipakai otomatis untuk rule kompleks
+    // lama (roster/bersarang), ATAU manual saat admin sengaja butuh AND/OR
+    // campur berkurung (nested) yang tak bisa direpresentasikan builder flat.
+    function showBuilder(useBuilder) {
+      el('ar-builder-wrap').classList.toggle('hidden', !useBuilder);
+      el('ar-adv-wrap').classList.toggle('hidden', useBuilder);
     }
-    el('ar-mode-simple').addEventListener('change', function () { setRuleMode('simple'); });
-    el('ar-mode-advanced').addEventListener('change', function () {
-      // Jembatan: bawa kondisi Mode Sederhana ke JSON supaya bisa disempurnakan
-      // (mis. dibungkus roster_* / dibuat bersarang). Hanya bila valid.
+    function isAdvancedRule() { return !el('ar-adv-wrap').classList.contains('hidden'); }
+
+    // Catatan di atas editor JSON beda tergantung ALASAN masuk mode ini:
+    // auto (rule kompleks lama, warna amber) vs manual (pilihan admin sendiri
+    // untuk kondisi berkurung, warna netral).
+    function updateAdvNote(auto) {
+      el('ar-adv-note-auto').classList.toggle('hidden', !auto);
+      el('ar-adv-note-manual').classList.toggle('hidden', auto);
+    }
+
+    // Builder → JSON: rakit `when` dari kondisi saat ini (harus valid dulu)
+    // supaya admin tak kehilangan kondisi yang sudah diisi saat pindah mode.
+    el('ar-switch-advanced').addEventListener('click', function () {
       syncCondRows();
       var w = AdminLogic.buildSimpleGroup(Adm.combinator, Adm.condRows, fieldMeta);
-      if (w.ok) el('ar-json').value = JSON.stringify(w.when, null, 2);
-      setRuleMode('advanced');
+      if (!w.ok) {
+        el('ar-error').textContent = w.error;
+        el('ar-error').classList.remove('hidden');
+        return;
+      }
+      el('ar-error').classList.add('hidden');
+      el('ar-json').value = JSON.stringify(w.when, null, 2);
+      updateAdvNote(false);
+      showBuilder(false);
     });
 
-    function isKnownField(id) { return fieldMeta(id) !== null; }
+    // JSON → builder: hanya berhasil kalau strukturnya "sederhana" (leaf polos/
+    // formula digabung all/any DATAR, semua field dikenal) — roster/bersarang
+    // memang di luar jangkauan builder, sesuai batasan yang disengaja.
+    el('ar-switch-builder').addEventListener('click', function () {
+      var parsed = AdminLogic.parseAdvancedWhen(el('ar-json').value);
+      if (!parsed.ok) {
+        el('ar-error').textContent = parsed.error;
+        el('ar-error').classList.remove('hidden');
+        return;
+      }
+      var cls = AdminLogic.classifySimpleGroup(parsed.when, isKnownField);
+      if (!cls.simple) {
+        el('ar-error').textContent = 'Kondisi ini memakai roster/bersarang/kurung — tidak bisa dibuka di builder sederhana.';
+        el('ar-error').classList.remove('hidden');
+        return;
+      }
+      el('ar-error').classList.add('hidden');
+      Adm.combinator = cls.combinator;
+      Adm.condRows = cls.conditions;
+      el('ar-combinator').value = Adm.combinator;
+      renderConditions();
+      showBuilder(true);
+    });
+
+    // ---- Panel Variabel: referensi alias field; klik = sisip ke Formula ----
+
+    // Arti singkat: buang prefiks penomoran ("26a. ", "11a. ", "8.a. "),
+    // buang "(hitungan)", potong bila kepanjangan — supaya mudah dibaca.
+    function shortLabel(label) {
+      var s = String(label == null ? '' : label).replace(/^\s*[\w.]+\.\s+/, '').replace(/\s*\(hitungan\)\s*$/i, '').trim();
+      return s.length > 34 ? s.slice(0, 33).trim() + '…' : s;
+    }
+
+    function renderVarPanel() {
+      var list = el('ar-var-list');
+      var q = el('ar-var-search').value.trim().toLowerCase();
+      list.innerHTML = '';
+      Adm.fields
+        .filter(function (f) {
+          return !q || f.id.toLowerCase().indexOf(q) !== -1 || String(f.label).toLowerCase().indexOf(q) !== -1;
+        })
+        .forEach(function (f) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('data-testid', 'ar-var-' + f.id);
+          b.className = 'flex items-center gap-2 text-left px-2 py-1 rounded-lg border border-slate-200 bg-white active:bg-orange-50';
+          var alias = document.createElement('span');
+          alias.className = 'font-mono text-xs shrink-0 ' + (f.source === 'computed' ? 'text-indigo-700' : 'text-slate-700');
+          alias.textContent = f.id;
+          var meaning = document.createElement('span');
+          meaning.className = 'text-xs text-slate-500 truncate';
+          meaning.textContent = shortLabel(f.label);
+          b.appendChild(alias);
+          b.appendChild(meaning);
+          b.addEventListener('click', function () { insertVar(f.id); });
+          list.appendChild(b);
+        });
+      if (!list.children.length) {
+        list.innerHTML = '<span class="text-xs text-slate-400">Tidak ada variabel cocok.</span>';
+      }
+    }
+    el('ar-var-search').addEventListener('input', renderVarPanel);
+
+    // Textarea formula yang jadi sasaran sisip: yang terakhir difokuskan (kalau
+    // masih ada), atau satu-satunya kalau memang cuma ada satu.
+    function activeFormulaTextarea() {
+      if (Adm.activeFormulaEl && document.contains(Adm.activeFormulaEl)) return Adm.activeFormulaEl;
+      var tas = el('ar-cond-list').querySelectorAll('.ar-cond-formula');
+      return tas.length === 1 ? tas[0] : null;
+    }
+
+    function insertVar(alias) {
+      var ta = activeFormulaTextarea();
+      if (!ta) { UiFx.toast('Klik dulu kotak Formula untuk menyisipkan variabel.'); return; }
+      var start = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
+      var end = ta.selectionEnd == null ? ta.value.length : ta.selectionEnd;
+      var before = ta.value.slice(0, start);
+      var after = ta.value.slice(end);
+      var pad = before && !/\s$/.test(before) ? ' ' : '';
+      var insert = pad + alias + ' ';
+      ta.value = before + insert + after;
+      var caret = (before + insert).length;
+      Adm.activeFormulaEl = ta;
+      ta.focus();
+      ta.setSelectionRange(caret, caret);
+    }
 
     function openRuleDialog(r) {
       Adm.editingR = r ? r.rule_id : null;
@@ -778,26 +942,30 @@
       el('ar-preview-result').classList.add('hidden');
       el('ar-preview-computed').classList.add('hidden');
       el('ar-preview-answers').value = '';
-
-      // Default Mode Sederhana: satu kondisi kosong.
-      Adm.combinator = 'all';
-      Adm.condRows = [newCondition()];
       el('ar-json').value = '';
+      el('ar-var-search').value = '';
+      Adm.activeFormulaEl = null;
+
+      // Default: builder, satu kondisi sederhana kosong.
+      Adm.combinator = 'all';
+      Adm.condRows = [newCondition('simple')];
 
       var cls = r ? AdminLogic.classifySimpleGroup(r.when, isKnownField) : null;
       if (cls && cls.simple) {
         Adm.combinator = cls.combinator;
         Adm.condRows = cls.conditions;
-        setRuleMode('simple');
+        showBuilder(true);
       } else if (r) {
-        // Rule lama yang nested/roster/field tak dikenal → Mode Lanjutan (JSON).
+        // Rule kompleks (roster/bersarang/field tak dikenal) → editor JSON otomatis.
         el('ar-json').value = JSON.stringify(r.when, null, 2);
-        setRuleMode('advanced');
+        updateAdvNote(true);
+        showBuilder(false);
       } else {
-        setRuleMode('simple');
+        showBuilder(true);
       }
       el('ar-combinator').value = Adm.combinator;
       renderConditions();
+      renderVarPanel();
       UiFx.openDialog(el('ar-dialog'));
     }
 
@@ -805,11 +973,9 @@
     el('ar-cancel').addEventListener('click', function () { UiFx.closeDialog(el('ar-dialog')); });
 
     function currentWhen() {
-      if (el('ar-mode-simple').checked) {
-        syncCondRows();
-        return AdminLogic.buildSimpleGroup(Adm.combinator, Adm.condRows, fieldMeta);
-      }
-      return AdminLogic.parseAdvancedWhen(el('ar-json').value);
+      if (isAdvancedRule()) return AdminLogic.parseAdvancedWhen(el('ar-json').value);
+      syncCondRows();
+      return AdminLogic.buildSimpleGroup(Adm.combinator, Adm.condRows, fieldMeta);
     }
 
     el('ar-save').addEventListener('click', function () {
@@ -841,9 +1007,19 @@
 
     // -- preview: evaluator yang SAMA dengan submit, dijalankan di server --
 
+    // Isi template: HANYA variabel yang benar-benar dipakai kondisi rule ini —
+    // bukan seluruh daftar pertanyaan, supaya admin tak perlu menyisir field
+    // yang tak relevan. Kalau kondisi belum valid/tak menyebut field pertanyaan
+    // apa pun (mis. cuma field computed), fallback ke semua field aktif supaya
+    // tombol tetap berguna.
     el('ar-preview-template').addEventListener('click', function () {
-      var active = Adm.questions.filter(function (q) { return q.active; });
-      el('ar-preview-answers').value = JSON.stringify(AdminLogic.buildAnswersTemplate(active), null, 2);
+      var w = currentWhen();
+      var used = w.ok ? AdminLogic.fieldsUsedInWhen(w.when) : [];
+      var relevant = Adm.questions.filter(function (q) {
+        return q.active && used.indexOf(q.question_id) !== -1;
+      });
+      if (!relevant.length) relevant = Adm.questions.filter(function (q) { return q.active; });
+      el('ar-preview-answers').value = JSON.stringify(AdminLogic.buildAnswersTemplate(relevant), null, 2);
     });
 
     el('ar-preview-run').addEventListener('click', function () {

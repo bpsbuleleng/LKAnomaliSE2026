@@ -230,13 +230,162 @@ test('rule Mode Sederhana MULTI-KONDISI (DAN, 2 field): preview benar, tersimpan
   await fa.getByTestId('ar-preview-run').click();
   await expect(fa.getByTestId('ar-preview-result')).toContainText('TIDAK terpicu');
 
-  // Simpan → K100, lalu buka lagi: tetap Mode Sederhana dengan 2 kondisi utuh.
+  // Simpan → K100, lalu buka lagi: builder dengan 2 kondisi utuh.
   await fa.getByTestId('ar-save').click();
   await expect(fa.getByTestId('ar-row-K100')).toBeVisible();
   await fa.getByTestId('ar-edit-K100').click();
-  await expect(fa.getByTestId('ar-mode-simple')).toBeChecked();
   await expect(fa.getByTestId('ar-cond-field-0')).toHaveValue('b4r5');
   await expect(fa.getByTestId('ar-cond-field-1')).toHaveValue('b1r13_1');
+});
+
+test('rule MULTI-KONDISI campur Sederhana + Formula (DAN): tersimpan sbg all[leaf, formula], round-trip utuh', async ({ page }) => {
+  const fa = await adminLogin(page);
+  await resetAll(fa);
+  // usaha: pakai r13b1 (sederhana) DAN pangsa biaya produksi via formula r26b/r26_total
+  await expect(fa.getByTestId('ar-row-U1')).toBeVisible();
+
+  await fa.getByTestId('ar-add').click();
+  await fa.getByTestId('ar-message').fill('UJI-E2E campur: produksi barang DAN biaya produksi dominan');
+  // Kondisi 1 (Sederhana): r13b1 == 1
+  await fa.getByTestId('ar-cond-field-0').selectOption('r13b1');
+  await fa.getByTestId('ar-cond-op-0').selectOption('==');
+  await fa.getByTestId('ar-cond-value-0').selectOption('1');
+  // Kondisi 2: tambah, ubah tipe ke Formula, isi lewat klik panel Variabel + ketik
+  await fa.getByTestId('ar-cond-add').click();
+  await expect(fa.getByTestId('ar-combinator')).toBeVisible();
+  await fa.getByTestId('ar-cond-type-1').selectOption('formula');
+  await fa.getByTestId('ar-cond-formula-1').click();
+  await fa.getByTestId('ar-var-search').fill('r26b');
+  await fa.getByTestId('ar-var-r26b').click(); // sisip alias ke formula
+  await fa.getByTestId('ar-cond-formula-1').press('End');
+  await page.keyboard.type('/ r26_total > 0.5');
+
+  // Preview: DAN → terpicu hanya bila keduanya benar
+  await fa.getByTestId('ar-preview-answers').fill('{"r13b1": 1, "r26b": 40, "r26a": 10}');
+  await fa.getByTestId('ar-preview-run').click();
+  await expect(fa.getByTestId('ar-preview-result')).toContainText('TERPICU');
+  await fa.getByTestId('ar-preview-answers').fill('{"r13b1": 2, "r26b": 40, "r26a": 10}');
+  await fa.getByTestId('ar-preview-run').click();
+  await expect(fa.getByTestId('ar-preview-result')).toContainText('TIDAK terpicu');
+
+  await fa.getByTestId('ar-save').click();
+  await expect(fa.getByTestId('ar-row-U100')).toBeVisible();
+  // Tersimpan sebagai all[ leaf, {formula} ]
+  const rules = await direct(fa, 'getRules', ['usaha', true]);
+  const u100 = rules.rules.find((r) => r.rule_id === 'U100');
+  expect(u100.when.all).toHaveLength(2);
+  expect(u100.when.all[0]).toEqual({ field: 'r13b1', op: '==', value: 1 });
+  expect(u100.when.all[1]).toEqual({ formula: 'r26b / r26_total > 0.5' });
+  // Round-trip: buka lagi → kondisi 1 sederhana, kondisi 2 formula dengan teks utuh
+  await fa.getByTestId('ar-edit-U100').click();
+  await expect(fa.getByTestId('ar-cond-field-0')).toHaveValue('r13b1');
+  await expect(fa.getByTestId('ar-cond-type-1')).toHaveValue('formula');
+  await expect(fa.getByTestId('ar-cond-formula-1')).toHaveValue('r26b / r26_total > 0.5');
+});
+
+test('rule kompleks lama (roster/bersarang) dibuka sebagai editor JSON otomatis', async ({ page }) => {
+  const fa = await adminLogin(page);
+  await resetAll(fa);
+  await fa.getByTestId('jenis-tab-keluarga').click();
+  await expect(fa.getByTestId('ar-row-K1')).toBeVisible();
+  // K1 memakai roster_any → tak bisa di builder → editor JSON muncul
+  await fa.getByTestId('ar-edit-K1').click();
+  await expect(fa.getByTestId('ar-json')).toBeVisible();
+  await expect(fa.getByTestId('ar-json')).toHaveValue(/roster_any/); // isi textarea di .value
+  // builder (daftar kondisi) tersembunyi untuk rule kompleks
+  await expect(fa.getByTestId('ar-cond-list')).toBeHidden();
+});
+
+test('beralih manual builder → editor JSON (kondisi berkurung) → balik lagi ke builder', async ({ page }) => {
+  const fa = await adminLogin(page);
+  await resetAll(fa);
+  await expect(fa.getByTestId('ar-row-U1')).toBeVisible();
+
+  // Rule baru sederhana: r13b1 == 1 (Sederhana)
+  await fa.getByTestId('ar-add').click();
+  await fa.getByTestId('ar-message').fill('UJI-E2E kurung: r13b1==1 DAN (r26a>0 ATAU r26b>0)');
+  await fa.getByTestId('ar-cond-field-0').selectOption('r13b1');
+  await fa.getByTestId('ar-cond-op-0').selectOption('==');
+  await fa.getByTestId('ar-cond-value-0').selectOption('1');
+
+  // Pindah manual ke JSON: kondisi yg sudah diisi ikut terbawa (bukan kosong),
+  // catatan yang tampil netral (manual) — BUKAN peringatan "rule kompleks lama".
+  await fa.getByTestId('ar-switch-advanced').click();
+  await expect(fa.getByTestId('ar-json')).toBeVisible();
+  await expect(fa.getByTestId('ar-json')).toHaveValue(/"r13b1"/);
+  await expect(fa.getByTestId('ar-adv-note-manual')).toBeVisible();
+  await expect(fa.getByTestId('ar-adv-note-auto')).toBeHidden();
+
+  // Tambahkan kurung (nested any) langsung sebagai JSON — di luar jangkauan
+  // builder flat, ini justru intinya fitur "editor JSON" ini.
+  await fa.getByTestId('ar-json').fill(JSON.stringify({
+    all: [
+      { field: 'r13b1', op: '==', value: 1 },
+      { any: [{ field: 'r26a', op: '>', value: 0 }, { field: 'r26b', op: '>', value: 0 }] }
+    ]
+  }));
+  await fa.getByTestId('ar-preview-answers').fill('{"r13b1": 1, "r26a": 0, "r26b": 5}');
+  await fa.getByTestId('ar-preview-run').click();
+  await expect(fa.getByTestId('ar-preview-result')).toContainText('TERPICU');
+
+  await fa.getByTestId('ar-save').click();
+  await expect(fa.getByTestId('ar-row-U100')).toBeVisible();
+  const rules = await direct(fa, 'getRules', ['usaha', true]);
+  const u100 = rules.rules.find((r) => r.rule_id === 'U100');
+  expect(u100.when).toEqual({
+    all: [
+      { field: 'r13b1', op: '==', value: 1 },
+      { any: [{ field: 'r26a', op: '>', value: 0 }, { field: 'r26b', op: '>', value: 0 }] }
+    ]
+  });
+
+  // Rule ini SEKARANG kompleks (nested) → dibuka lagi otomatis sbg JSON (amber).
+  await fa.getByTestId('ar-edit-U100').click();
+  await expect(fa.getByTestId('ar-json')).toBeVisible();
+  await expect(fa.getByTestId('ar-adv-note-auto')).toBeVisible();
+  // "Kembali ke builder sederhana" gagal dengan pesan jelas untuk JSON bersarang.
+  await fa.getByTestId('ar-switch-builder').click();
+  await expect(fa.getByTestId('ar-error')).toBeVisible();
+  await expect(fa.getByTestId('ar-error')).toContainText('bersarang');
+  await expect(fa.getByTestId('ar-json')).toBeVisible(); // tetap di JSON, tidak dipaksa pindah
+});
+
+test('tombol "Isi template" hanya mengisi variabel yang dipakai kondisi rule, bukan semua pertanyaan', async ({ page }) => {
+  const fa = await adminLogin(page);
+  await resetAll(fa);
+  await fa.getByTestId('jenis-tab-keluarga').click();
+  await expect(fa.getByTestId('ar-row-K1')).toBeVisible();
+
+  await fa.getByTestId('ar-add').click();
+  await fa.getByTestId('ar-cond-field-0').selectOption('b4r5');
+  await fa.getByTestId('ar-cond-op-0').selectOption('>');
+  await fa.getByTestId('ar-cond-value-0').fill('500');
+
+  await fa.getByTestId('ar-preview-template').click();
+  const tmpl = JSON.parse(await fa.getByTestId('ar-preview-answers').inputValue());
+  expect(Object.keys(tmpl)).toEqual(['b4r5']);
+  expect(tmpl.b4r5).toBe('');
+
+  // Tambah kondisi ke-2 pakai field flat lain → template ikut nambah field itu
+  // SAJA, tetap tidak menyeret field keluarga lain (mis. b4r3a) yang tak disebut.
+  await fa.getByTestId('ar-cond-add').click();
+  await fa.getByTestId('ar-cond-field-1').selectOption('b1r13_1');
+  await fa.getByTestId('ar-cond-op-1').selectOption('<');
+  await fa.getByTestId('ar-cond-value-1').fill('50');
+  await fa.getByTestId('ar-preview-template').click();
+  const tmpl2 = JSON.parse(await fa.getByTestId('ar-preview-answers').inputValue());
+  expect(tmpl2).toEqual({ b4r5: '', b1r13_1: '' });
+
+  // Field roster (mis. b1r8_n) sengaja TIDAK dipilihkan di builder flat (hanya
+  // lewat Mode Lanjutan roster_*) — cek lewat editor JSON: template ikut
+  // menyertakan blok roster yang dirujuk, TANPA field keluarga lain.
+  await fa.getByTestId('ar-switch-advanced').click();
+  await fa.getByTestId('ar-json').fill(JSON.stringify({
+    roster_any: 'anggota_keluarga', condition: { field: 'b1r8_n', op: '==', value: 1 }
+  }));
+  await fa.getByTestId('ar-preview-template').click();
+  const tmpl3 = JSON.parse(await fa.getByTestId('ar-preview-answers').inputValue());
+  expect(tmpl3).toEqual({ roster: { anggota_keluarga: [{ b1r8_n: '' }] } });
 });
 
 test('SERVER-SIDE GUARD: panggilan langsung (console) SEMUA fungsi privileged dengan password salah/kosong/tanpa-argumen DITOLAK', async ({ page }) => {
