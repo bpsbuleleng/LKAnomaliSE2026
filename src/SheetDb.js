@@ -21,7 +21,8 @@ var SheetDb = (function () {
     RECORDS: 'Records',
     QUESTIONS: 'Questions',
     RULES: 'Rules',
-    NTB: 'Rasio NTB SE2016'
+    NTB: 'Rasio NTB SE2016',
+    COMPUTED: 'Variabel Hitungan'
   };
 
   var PETUGAS_HEADERS = ['Nama Lengkap', 'Posisi', 'Posisi Daftar', 'Alamat Detail', 'Jenis Kelamin', 'SOBAT ID', 'Email'];
@@ -36,6 +37,12 @@ var SheetDb = (function () {
   // Tab referensi buatan user (~2560 baris, kode KBLI 5 digit → rasio NTB
   // SE2016) — app hanya baca, dipakai computed field batas_rasio_ntb (U9).
   var NTB_HEADERS = ['KBLI 2025', 'Judul KBLI 2025', 'Kategori KBLI 2020', 'Rasio NTB SE 2016'];
+  // Tab BARU (dibuat aplikasi sendiri, bukan diimpor user): override formula
+  // computed field yang boleh diedit admin (lihat ComputedFields
+  // EDITABLE_DEFAULTS). SPARSE — hanya field yang di-override admin punya
+  // baris; field lain pakai default di kode. Baris dihapus (bukan
+  // dikosongkan) saat admin reset ke default lewat updateComputedFieldFormula.
+  var COMPUTED_HEADERS = ['field_id', 'jenis', 'formula'];
 
   // Satu handle spreadsheet per eksekusi (global GAS hidup sepanjang satu
   // panggilan google.script.run saja — ini memo, bukan state antar panggilan).
@@ -144,6 +151,52 @@ var SheetDb = (function () {
     return readTable(TABS.NTB).map(function (r) {
       return { kode: s_(r[NTB_HEADERS[0]]), rasio: s_(r[NTB_HEADERS[3]]) };
     });
+  }
+
+  /**
+   * Baca override formula computed field milik SATU jenis jadi map
+   * {field_id: formula}. Tab belum ada / baris tanpa formula → dilewati
+   * (field itu pakai default di kode — lihat ComputedFields.formulaStep).
+   */
+  function readComputedFieldFormulas(jenis) {
+    if (!ss().getSheetByName(TABS.COMPUTED)) return {};
+    var map = {};
+    readTable(TABS.COMPUTED).forEach(function (r) {
+      if (s_(r.jenis) !== jenis) return;
+      var id = s_(r.field_id);
+      var formula = s_(r.formula);
+      if (id && formula) map[id] = formula;
+    });
+    return map;
+  }
+
+  /**
+   * Simpan/timpa formula override SATU field, atau hapus barisnya kalau
+   * formula kosong (= reset ke default) — tab TIDAK PERNAH menumpuk baris
+   * kosong. Membuat tab kalau belum ada (dipanggil pertama kali admin
+   * mengedit formula, bukan lewat adminSetupSheets — tab ini bukan bagian
+   * dari data awal). Caller WAJIB di bawah ScriptLock.
+   */
+  function upsertComputedFieldFormula(jenis, fieldId, formula) {
+    if (!ss().getSheetByName(TABS.COMPUTED)) ensureTab(TABS.COMPUTED, COMPUTED_HEADERS);
+    var sh = mustSheet(TABS.COMPUTED);
+    var last = sh.getLastRow();
+    var rowIndex = -1;
+    if (last >= 2) {
+      var ids = sh.getRange(2, 1, last - 1, 2).getDisplayValues();
+      for (var i = 0; i < ids.length; i++) {
+        if (ids[i][0] === fieldId && ids[i][1] === jenis) { rowIndex = i + 2; break; }
+      }
+    }
+    if (!formula) {
+      if (rowIndex !== -1) sh.deleteRow(rowIndex);
+      return;
+    }
+    if (rowIndex === -1) {
+      rowIndex = last + 1;
+      ensureCapacity_(sh, rowIndex);
+    }
+    sh.getRange(rowIndex, 1, 1, COMPUTED_HEADERS.length).setValues([[fieldId, jenis, formula]]);
   }
 
   function petugasToRow_(p) { return PETUGAS_HEADERS.map(function (h) { return s_(p[h]); }); }
@@ -349,6 +402,7 @@ var SheetDb = (function () {
     expected[TABS.QUESTIONS] = QUESTION_HEADERS;
     expected[TABS.RULES] = RULE_HEADERS;
     expected[TABS.NTB] = NTB_HEADERS;
+    expected[TABS.COMPUTED] = COMPUTED_HEADERS;
 
     var out = {};
     Object.keys(expected).forEach(function (name) {
@@ -390,6 +444,8 @@ var SheetDb = (function () {
     readPetugas: readPetugas,
     readAlokasi: readAlokasi,
     readNtbRasio: readNtbRasio,
+    readComputedFieldFormulas: readComputedFieldFormulas,
+    upsertComputedFieldFormula: upsertComputedFieldFormula,
     readRecords: readRecords,
     upsertRecord: upsertRecord,
     deleteRecordRow: deleteRecordRow,
@@ -412,7 +468,8 @@ var SheetDb = (function () {
       RECORDS: RECORD_HEADERS,
       QUESTIONS: QUESTION_HEADERS,
       RULES: RULE_HEADERS,
-      NTB: NTB_HEADERS
+      NTB: NTB_HEADERS,
+      COMPUTED: COMPUTED_HEADERS
     }
   };
 })();

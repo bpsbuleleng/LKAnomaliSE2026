@@ -4,14 +4,32 @@
  * sederhana (field/op/value) tanpa bahasa agregat generik.
  * Logic murni: tanpa dependency GAS, di-unit-test di Node.
  *
- * Satu fungsi kecil per field (bukan bahasa query) — sesuai keputusan di
- * CLAUDE.md "GAP ARSITEKTUR". Guard pembagian: penyebut 0/kosong → hasil
- * null; evaluator memperlakukan null sebagai "tidak berlaku" (kondisi false).
+ * Dua kelompok field, TIDAK dicampur:
+ *   1. FORMULA-EDITABLE (aritmetika flat, tanpa akses roster/tabel eksternal)
+ *      — didefinisikan sebagai string Formula.js (parser aman, TANPA eval)
+ *      di EDITABLE_DEFAULTS, admin bisa menimpanya lewat tab "Variabel
+ *      Hitungan" (dioper via refs.formulaOverrides — lihat DataAccess
+ *      getComputedFields/updateComputedFieldFormula). Field OVERRIDE rusak
+ *      (seharusnya sudah divalidasi saat disimpan) fallback diam-diam ke
+ *      default, submit TIDAK PERNAH gagal karena formula admin.
+ *   2. TETAP DI KODE (agregasi roster, lookup tabel, ekstraksi string) —
+ *      satu fungsi kecil per field seperti sebelumnya (CLAUDE.md "GAP
+ *      ARSITEKTUR"), TIDAK bisa diedit dari UI karena butuh primitif di luar
+ *      grammar aritmetika flat (roster_*, lookup KBLI, dst).
+ *
+ * Guard pembagian (kedua kelompok): penyebut 0/kosong → hasil null; evaluator
+ * memperlakukan null sebagai "tidak berlaku" (kondisi false).
  *
  * Submit ulang menghitung ulang & menimpa nilai lama — computed field TIDAK
  * pernah diisi manual dan tidak dirender di kuesioner (bukan baris Questions).
  */
 var ComputedFields = (function () {
+  // GAS: Formula global antar-file; Node: require (ditunda ke saat panggil).
+  function formulaLib() {
+    if (typeof module !== 'undefined' && module.exports) return require('./Formula.js');
+    return Formula;
+  }
+
   // Jumlah: komponen kosong dianggap 0 (isian belum lengkap ≠ NaN).
   function num(v) {
     if (v === undefined || v === null || v === '') return 0;
@@ -49,18 +67,6 @@ var ComputedFields = (function () {
     }, 0);
   }
 
-  // b4r16 = (mingguan × 30 ÷ 7) + bulanan + (tahunan ÷ 12) — total pengeluaran
-  // sebulan (rumus dikonfirmasi user, cocok dengan Identifikasi K5).
-  function b4r16(a) {
-    return (num(a.b4r16a) * 30 / 7) + num(a.b4r16b) + (num(a.b4r16c) / 12);
-  }
-
-  // luas_per_kapita = b4r5 ÷ b1r9 (dipakai K4). b1r9 dihitung DULUAN.
-  function luasPerKapita(a) {
-    var jml = num(a.b1r9);
-    return jml > 0 ? num(a.b4r5) / jml : null;
-  }
-
   // r13f = kategori 1 digit, digit PERTAMA dari kode KBLI 5 digit r13g —
   // string (bukan number) supaya konsisten dengan cara kode wilayah/KBLI
   // diperlakukan di app ini (leading zero itu bagian dari identitasnya).
@@ -92,27 +98,6 @@ var ComputedFields = (function () {
       if (golPokok >= KATEGORI_RANGES[i][0] && golPokok <= KATEGORI_RANGES[i][1]) return KATEGORI_RANGES[i][2];
     }
     return '';
-  }
-
-  function r26Total(a) {
-    return num(a.r26a) + num(a.r26b) + num(a.r26c) + num(a.r26d) + num(a.r26e);
-  }
-
-  function pangsaBiayaProduksi(a) {
-    var total = num(a.r26_total);
-    return total > 0 ? num(a.r26b) / total : null;
-  }
-
-  function rasioPendapatanBiaya(a) {
-    var total = num(a.r26_total);
-    return total > 0 ? num(a.r27c) / total : null;
-  }
-
-  // rasio_ntb = (r27c − r26_total) ÷ r27c — rasio Nilai Tambah Bruto
-  // (sirusa.web.bps.go.id/metadata/indikator/4621). r27c 0/kosong → null.
-  function rasioNtb(a) {
-    var pendapatan = num(a.r27c);
-    return pendapatan > 0 ? (pendapatan - num(a.r26_total)) / pendapatan : null;
   }
 
   // batas_rasio_ntb = lookup rasio NTB SE2016 per kode KBLI r13g dari tab
@@ -147,32 +132,81 @@ var ComputedFields = (function () {
     return map;
   }
 
+  // Formula DEFAULT untuk field yang boleh diedit admin (aritmetika flat,
+  // TANPA roster/lookup — lihat komentar atas file). String ini adalah
+  // SUMBER KEBENARAN (bukan sekadar dokumentasi) — dipakai formulaStep()
+  // sebagai fallback saat tidak ada override, DAN oleh listFields/fieldMeta
+  // untuk ditampilkan di halaman admin.
+  var EDITABLE_DEFAULTS = {
+    keluarga: {
+      // Total pengeluaran sebulan (rumus dikonfirmasi user, cocok Identifikasi K5).
+      b4r16: '(b4r16a * 30 / 7) + b4r16b + (b4r16c / 12)',
+      // Luas lantai per kapita (dipakai K4). b1r9 sudah dihitung LEBIH DULU
+      // di pipeline — di sini cuma field angka biasa, bukan akses roster.
+      luas_per_kapita: 'b4r5 / b1r9'
+    },
+    usaha: {
+      r26_total: 'r26a + r26b + r26c + r26d + r26e',
+      pangsa_biaya_produksi: 'r26b / r26_total',
+      rasio_pendapatan_biaya: 'r27c / r26_total',
+      // Rasio NTB (sirusa.web.bps.go.id/metadata/indikator/4621).
+      rasio_ntb: '(r27c - r26_total) / r27c'
+    }
+  };
+
+  /**
+   * Step pipeline untuk field formula-editable: pakai override
+   * refs.formulaOverrides[fieldId] kalau ada (string tervalidasi saat
+   * disimpan — lihat DataAccess.updateComputedFieldFormula), else default.
+   * Override yang ternyata rusak (mis. tab diedit manual di luar UI admin)
+   * TIDAK BOLEH menggagalkan submit — fallback diam-diam ke default.
+   */
+  function formulaStep(jenis, fieldId) {
+    var defaultFormula = EDITABLE_DEFAULTS[jenis][fieldId];
+    return function (a, refs) {
+      var override = refs && refs.formulaOverrides && refs.formulaOverrides[fieldId];
+      try {
+        return formulaLib().evaluateExpr(override || defaultFormula, a);
+      } catch (e) {
+        return formulaLib().evaluateExpr(defaultFormula, a);
+      }
+    };
+  }
+
   // Urutan penting: field yang bergantung field computed lain harus setelahnya.
-  // Elemen ke-3 = label tampilan (dipakai dropdown field di halaman config).
+  // Elemen ke-3 = label tampilan; elemen ke-4 = { editable, note } — note
+  // dipakai halaman admin untuk field TETAP DI KODE (editable:false).
   var PIPELINE = {
     keluarga: [
-      ['jumlah_anggota_keluarga', rosterCount('anggota_keluarga'), 'Jumlah baris roster Anggota Keluarga (hitungan)'],
-      ['jumlah_meteran_listrik', rosterCount('meteran_listrik'), 'Jumlah baris roster Meteran Listrik (hitungan)'],
-      ['b1r9', b1r9, 'Jumlah anggota keluarga (hitungan)'],
-      ['b3r18c', b3r18c, 'Total pendapatan sebulan (hitungan)'],
-      ['b4r16', b4r16, 'Total pengeluaran sebulan (hitungan)'],
-      ['luas_per_kapita', luasPerKapita, 'Luas lantai per kapita m² (hitungan)']
+      ['jumlah_anggota_keluarga', rosterCount('anggota_keluarga'), 'Jumlah baris roster Anggota Keluarga (hitungan)',
+        { editable: false, note: 'Banyak baris roster anggota_keluarga, apa pun isinya (agregasi roster — tetap di kode).' }],
+      ['jumlah_meteran_listrik', rosterCount('meteran_listrik'), 'Jumlah baris roster Meteran Listrik (hitungan)',
+        { editable: false, note: 'Banyak baris roster meteran_listrik, apa pun isinya (agregasi roster — tetap di kode).' }],
+      ['b1r9', b1r9, 'Jumlah anggota keluarga (hitungan)',
+        { editable: false, note: 'Count baris roster anggota_keluarga dengan b1r9_n = 1 (tinggal) atau 5 (anggota baru) — agregasi roster, tetap di kode.' }],
+      ['b3r18c', b3r18c, 'Total pendapatan sebulan (hitungan)',
+        { editable: false, note: 'SUM b3r18a_n + b3r18b_n + b3r18c_n di SEMUA baris roster anggota_keluarga — agregasi roster, tetap di kode.' }],
+      ['b4r16', formulaStep('keluarga', 'b4r16'), 'Total pengeluaran sebulan (hitungan)', { editable: true }],
+      ['luas_per_kapita', formulaStep('keluarga', 'luas_per_kapita'), 'Luas lantai per kapita m² (hitungan)', { editable: true }]
     ],
     usaha: [
-      ['r13f', r13f, 'Kategori 1 digit dari kode KBLI (hitungan)'],
-      ['r13h', r13h, 'Kategori huruf A-U dari kode KBLI (hitungan)'],
-      ['r26_total', r26Total, 'Total biaya usaha setahun (hitungan)'],
-      ['pangsa_biaya_produksi', pangsaBiayaProduksi, 'Pangsa biaya produksi 0-1 (hitungan)'],
-      ['rasio_pendapatan_biaya', rasioPendapatanBiaya, 'Rasio pendapatan/biaya (hitungan)'],
-      ['rasio_ntb', rasioNtb, 'Rasio NTB (pendapatan−biaya)÷pendapatan (hitungan)'],
-      ['batas_rasio_ntb', batasRasioNtb, 'Batas rasio NTB SE2016 per KBLI (hitungan)']
+      ['r13f', r13f, 'Kategori 1 digit dari kode KBLI (hitungan)',
+        { editable: false, note: 'Digit pertama kode KBLI r13g (ekstraksi string, tetap di kode).' }],
+      ['r13h', r13h, 'Kategori huruf A-U dari kode KBLI (hitungan)',
+        { editable: false, note: 'Golongan pokok (2 digit pertama r13g) dipetakan ke huruf kategori KBLI 2020 (lookup rentang, tetap di kode).' }],
+      ['r26_total', formulaStep('usaha', 'r26_total'), 'Total biaya usaha setahun (hitungan)', { editable: true }],
+      ['pangsa_biaya_produksi', formulaStep('usaha', 'pangsa_biaya_produksi'), 'Pangsa biaya produksi 0-1 (hitungan)', { editable: true }],
+      ['rasio_pendapatan_biaya', formulaStep('usaha', 'rasio_pendapatan_biaya'), 'Rasio pendapatan/biaya (hitungan)', { editable: true }],
+      ['rasio_ntb', formulaStep('usaha', 'rasio_ntb'), 'Rasio NTB (pendapatan−biaya)÷pendapatan (hitungan)', { editable: true }],
+      ['batas_rasio_ntb', batasRasioNtb, 'Batas rasio NTB SE2016 per KBLI (hitungan)',
+        { editable: false, note: 'Lookup kode KBLI r13g di tab "Rasio NTB SE2016" (kode dobel → ambil rasio terbesar) — tabel eksternal, tetap di kode.' }]
     ]
   };
 
   /**
    * Kembalikan SALINAN answers dengan computed fields ditambahkan/ditimpa.
-   * @param refs tabel referensi eksternal opsional untuk field lookup,
-   *        saat ini: { ntbRasio: {kode→rasio} } (lihat buildNtbRasioMap).
+   * @param refs tabel referensi eksternal opsional:
+   *        { ntbRasio: {kode→rasio}, formulaOverrides: {fieldId→formula} }.
    */
   function augment(jenis, answers, refs) {
     var out = {};
@@ -183,14 +217,30 @@ var ComputedFields = (function () {
     return out;
   }
 
-  /** Daftar computed field per jenis — untuk dropdown field halaman config. */
+  /** Daftar computed field per jenis — untuk dropdown field & halaman admin. */
   function listFields(jenis) {
     return (PIPELINE[jenis] || []).map(function (step) {
-      return { id: step[0], label: step[2] };
+      var meta = step[3] || {};
+      var f = { id: step[0], label: step[2], editable: !!meta.editable };
+      if (meta.editable) f.defaultFormula = EDITABLE_DEFAULTS[jenis][step[0]];
+      if (meta.note) f.note = meta.note;
+      return f;
     });
   }
 
-  return { augment: augment, listFields: listFields, buildNtbRasioMap: buildNtbRasioMap };
+  /** Metadata satu field — dipakai DataAccess memvalidasi sebelum menyimpan override. */
+  function fieldMeta(jenis, fieldId) {
+    var steps = PIPELINE[jenis] || [];
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i][0] === fieldId) {
+        var meta = steps[i][3] || {};
+        return { editable: !!meta.editable, defaultFormula: meta.editable ? EDITABLE_DEFAULTS[jenis][fieldId] : null };
+      }
+    }
+    return null;
+  }
+
+  return { augment: augment, listFields: listFields, fieldMeta: fieldMeta, buildNtbRasioMap: buildNtbRasioMap };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

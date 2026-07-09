@@ -99,13 +99,14 @@ function deleteRecord(pmlEmail, recordId) {
  * SubmitLogic. Validasi gagal → { ok:true, submitted:false, missing } dan
  * jawaban TETAP tersimpan (draft). Submit ulang me-rerun rule tanpa syarat.
  */
-// Tabel referensi untuk computed field lookup (batas_rasio_ntb) — dibaca
-// hanya untuk jenis usaha; tab hilang/kosong → map kosong (rule NTB tidak
-// berlaku, submit tetap jalan). Dipakai submitRecord DAN previewRule supaya
-// perilaku preview identik dengan submit.
+// Tabel referensi untuk computed field: lookup batas_rasio_ntb (usaha saja)
+// + override formula field editable (kedua jenis) — tab hilang/kosong →
+// default berlaku, submit tetap jalan. Dipakai submitRecord DAN previewRule
+// supaya perilaku preview identik dengan submit.
 function computedRefs_(jenis) {
-  if (jenis !== 'usaha') return {};
-  return { ntbRasio: ComputedFields.buildNtbRasioMap(SheetDb.readNtbRasio()) };
+  var refs = { formulaOverrides: SheetDb.readComputedFieldFormulas(jenis) };
+  if (jenis === 'usaha') refs.ntbRasio = ComputedFields.buildNtbRasioMap(SheetDb.readNtbRasio());
+  return refs;
 }
 
 function submitRecord(pmlEmail, record) {
@@ -187,6 +188,30 @@ function getRuleFieldOptions(jenis) {
     });
   ComputedFields.listFields(jenis).forEach(function (f) {
     fields.push({ id: f.id, label: f.label, source: 'computed', type: 'number', options: null });
+  });
+  return { ok: true, fields: fields };
+}
+
+/**
+ * Daftar SEMUA computed field jenis ini (editable maupun tetap-di-kode) untuk
+ * halaman admin "Variabel Hitungan" — supaya admin tidak buta terhadap
+ * variabel hasil perhitungan yang dipakai rule. Read-only, unprivileged
+ * (sama seperti getQuestions/getRules) — password admin cuma dicek saat
+ * MENGUBAH formula (updateComputedFieldFormula).
+ */
+function getComputedFields(jenis) {
+  if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
+  var overrides = SheetDb.readComputedFieldFormulas(jenis);
+  var fields = ComputedFields.listFields(jenis).map(function (f) {
+    var out = { id: f.id, label: f.label, editable: f.editable };
+    if (f.editable) {
+      out.defaultFormula = f.defaultFormula;
+      out.formula = overrides[f.id] || f.defaultFormula;
+      out.overridden = !!overrides[f.id];
+    } else {
+      out.note = f.note;
+    }
+    return out;
   });
   return { ok: true, fields: fields };
 }
@@ -277,6 +302,38 @@ function setRuleActive(adminPassword, ruleId, active) {
   return withRules_(adminPassword, function (all) {
     return ConfigLogic.applySetRuleActive(all, ruleId, active);
   });
+}
+
+/**
+ * Ubah formula SATU computed field editable (lihat CLAUDE.md "Variabel
+ * Hitungan"). formula='' (atau spasi kosong) = reset ke default (baris
+ * override dihapus dari tab). Formula rusak ditolak DI SINI
+ * (Formula.compileExpr) supaya admin dapat error langsung saat menyimpan —
+ * ComputedFields.formulaStep tetap fallback aman kalau tab pernah diedit
+ * manual di luar jalur ini.
+ */
+function updateComputedFieldFormula(adminPassword, jenis, fieldId, formula) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
+  var meta = ComputedFields.fieldMeta(jenis, fieldId);
+  if (!meta || !meta.editable) return { ok: false, error: 'NOT_EDITABLE' };
+  var text = String(formula == null ? '' : formula).trim();
+  if (text) {
+    try {
+      Formula.compileExpr(text);
+    } catch (e) {
+      return { ok: false, error: 'INVALID_FORMULA', detail: String((e && e.message) || e) };
+    }
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    SheetDb.upsertComputedFieldFormula(jenis, fieldId, text);
+    return { ok: true, formula: text || meta.defaultFormula, overridden: !!text };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**

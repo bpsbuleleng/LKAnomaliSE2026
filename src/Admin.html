@@ -30,6 +30,8 @@
       <?!= include('AdminQuestionsView'); ?>
       <?!= include('AdminRulesView'); ?>
     </div>
+
+    <?!= include('AdminComputedView'); ?>
   </section>
 
   <?!= include('UiFx'); ?>
@@ -41,7 +43,7 @@
     // mengecek ulang setiap kali; UI ini sama sekali bukan lapisan proteksi.
     var Adm = {
       pw: null, jenis: 'usaha',
-      questions: [], rules: [], fields: [],
+      questions: [], rules: [], fields: [], computedFields: [],
       editingQ: null, editingR: null,
       // Mode Ubah Urutan: staging lokal, baru commit ke server saat Simpan.
       reordering: false, reorderIds: [],
@@ -71,7 +73,9 @@
       INVALID_WHEN: 'Kondisi when tidak valid.',
       INVALID_RULE_ID: 'Rule ID tidak valid — pakai huruf/angka/underscore/strip, tidak boleh kosong.',
       DUPLICATE_RULE_ID: 'Rule ID sudah dipakai rule lain.',
-      NOT_FOUND: 'Item tidak ditemukan — muat ulang halaman.'
+      NOT_FOUND: 'Item tidak ditemukan — muat ulang halaman.',
+      NOT_EDITABLE: 'Variabel ini tidak bisa diedit — logikanya tetap di kode (roster/lookup tabel).',
+      INVALID_FORMULA: 'Formula tidak valid.'
     };
 
     function el(id) { return document.getElementById(id); }
@@ -158,19 +162,24 @@
       setListsBusy(false);
       el('aq-list').innerHTML = UiFx.skeletonList(3, 'h-28');
       el('ar-list').innerHTML = UiFx.skeletonList(3, 'h-24');
+      el('acf-list').innerHTML = UiFx.skeletonList(3, 'h-16');
       return Promise.all([
         gsRun('getQuestions', Adm.jenis, true),   // admin lihat SEMUA termasuk nonaktif
         gsRun('getRules', Adm.jenis, true),
-        gsRun('getRuleFieldOptions', Adm.jenis)
+        gsRun('getRuleFieldOptions', Adm.jenis),
+        gsRun('getComputedFields', Adm.jenis)
       ]).then(function (vals) {
         Adm.questions = (vals[0] && vals[0].questions) || [];
         Adm.rules = (vals[1] && vals[1].rules) || [];
         Adm.fields = (vals[2] && vals[2].fields) || [];
+        Adm.computedFields = (vals[3] && vals[3].fields) || [];
         renderQuestions();
         renderRules();
+        renderComputedFields();
       }).catch(function () {
         el('aq-list').innerHTML = '<p class="text-sm text-red-600">Gagal memuat — periksa koneksi.</p>';
         el('ar-list').innerHTML = '';
+        el('acf-list').innerHTML = '';
       });
     }
 
@@ -558,6 +567,96 @@
         showErr('Gagal terhubung ke server.');
       });
     });
+
+    // ==== VARIABEL HASIL PERHITUNGAN ====
+    // Read-only (getComputedFields) + edit formula field editable
+    // (updateComputedFieldFormula) — field roster/lookup TIDAK ikut, hanya
+    // tampil sebagai catatan (note) supaya admin tidak buta terhadap variabel
+    // yang dipakai rule tapi tidak diisi manual di kuesioner.
+
+    function renderComputedFields() {
+      var wrap = el('acf-list');
+      wrap.innerHTML = '';
+      if (!Adm.computedFields.length) {
+        wrap.innerHTML = '<p class="text-sm text-slate-400">Tidak ada variabel.</p>';
+        return;
+      }
+      Adm.computedFields.forEach(function (f) {
+        var row = document.createElement('div');
+        row.setAttribute('data-testid', 'acf-row-' + f.id);
+        row.className = 'rounded-xl border border-slate-200 p-3 space-y-2';
+
+        var badges = f.editable ? badge('Formula', 'bg-indigo-100 text-indigo-700') : badge('Tetap di kode', 'bg-slate-100 text-slate-500');
+        if (f.editable && f.overridden) badges += ' ' + badge('diedit admin', 'bg-orange-100 text-orange-700');
+        var head = document.createElement('div');
+        head.className = 'flex items-center gap-2 flex-wrap';
+        head.innerHTML =
+          '<span class="font-mono text-xs font-semibold text-indigo-700"></span>' +
+          '<span class="text-sm text-slate-600"></span>' + badges;
+        head.children[0].textContent = f.id;
+        head.children[1].textContent = f.label;
+        row.appendChild(head);
+
+        if (f.editable) {
+          var editWrap = document.createElement('div');
+          editWrap.className = 'flex flex-col sm:flex-row gap-2';
+          var input = document.createElement('input');
+          input.className = 'flex-1 h-11 px-3 text-sm rounded-lg border border-slate-300 font-mono';
+          input.setAttribute('data-testid', 'acf-formula-' + f.id);
+          input.value = f.formula;
+          editWrap.appendChild(input);
+          var btnRow = document.createElement('div');
+          btnRow.className = 'flex gap-2';
+          btnRow.appendChild(smallBtn('Simpan', 'acf-save-' + f.id, false, function () { saveComputedFormula(f, input); }, 'text-emerald-700'));
+          if (f.overridden) {
+            btnRow.appendChild(smallBtn('Reset', 'acf-reset-' + f.id, false, function () { resetComputedFormula(f); }));
+          }
+          editWrap.appendChild(btnRow);
+          row.appendChild(editWrap);
+
+          var err = document.createElement('p');
+          err.className = 'hidden text-xs text-red-600';
+          err.setAttribute('data-testid', 'acf-error-' + f.id);
+          row.appendChild(err);
+        } else {
+          var note = document.createElement('p');
+          note.className = 'text-xs text-slate-500';
+          note.textContent = f.note || '';
+          row.appendChild(note);
+        }
+        wrap.appendChild(row);
+      });
+      UiFx.staggerIn(wrap.children, 30);
+    }
+
+    function computedError(fieldId) { return el('acf-list').querySelector('[data-testid="acf-error-' + fieldId + '"]'); }
+
+    function saveComputedFormula(f, input) {
+      var err = computedError(f.id);
+      err.classList.add('hidden');
+      gsRun('updateComputedFieldFormula', Adm.pw, Adm.jenis, f.id, input.value)
+        .then(function (res) {
+          if (!(res && res.ok)) {
+            err.textContent = serverError(res);
+            err.classList.remove('hidden');
+            return;
+          }
+          loadAll();
+        })
+        .catch(function () {
+          err.textContent = 'Gagal terhubung ke server.';
+          err.classList.remove('hidden');
+        });
+    }
+
+    function resetComputedFormula(f) {
+      gsRun('updateComputedFieldFormula', Adm.pw, Adm.jenis, f.id, '')
+        .then(function (res) {
+          if (!(res && res.ok)) { alert(serverError(res)); return; }
+          loadAll();
+        })
+        .catch(function () { alert('Gagal terhubung ke server.'); });
+    }
 
     // ==== KELOLA RULE ====
 

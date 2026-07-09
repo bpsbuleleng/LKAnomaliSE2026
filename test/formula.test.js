@@ -90,3 +90,45 @@ test('compile: formula kosong ditolak', () => {
 test('compile: operator banding tak lengkap ditolak', () => {
   assert.throws(() => Formula.compile('a = 1'), /tidak lengkap/);
 });
+
+// ==== compileExpr/evaluateExpr: ekspresi NILAI (dipakai formula computed
+// field yang bisa diedit admin — TANPA perbandingan, hasil Number|null) ====
+
+test('evaluateExpr: aritmetika dasar identik dengan grammar evaluate (tanpa cmp)', () => {
+  assert.equal(Formula.evaluateExpr('r26a + r26b + r26c + r26d + r26e', { r26a: 1, r26b: 2, r26c: 3, r26d: 4, r26e: 5 }), 15);
+  assert.equal(Formula.evaluateExpr('(a + b) * c', { a: 2, b: 3, c: 4 }), 20);
+  assert.equal(Formula.evaluateExpr('-a + 10', { a: 3 }), 7);
+});
+
+test('evaluateExpr: field kosong/null/non-angka dianggap 0 (sama seperti evaluate)', () => {
+  assert.equal(Formula.evaluateExpr('a + b', { a: '', b: null }), 0);
+  assert.equal(Formula.evaluateExpr('a + b', {}), 0);
+});
+
+test('evaluateExpr: bagi 0 → null ("tidak berlaku"), menjalar ke ekspresi induk', () => {
+  assert.equal(Formula.evaluateExpr('r26b / r26_total', { r26b: 30, r26_total: 0 }), null);
+  assert.equal(Formula.evaluateExpr('(a / b) + 1', { a: 5, b: 0 }), null);
+});
+
+test('evaluateExpr: mereproduksi hasil computed field pangsa_biaya_produksi persis', () => {
+  const scope = { r26b: 30000000, r26_total: 50000000 };
+  assert.equal(Formula.evaluateExpr('r26b / r26_total', scope), 0.6);
+});
+
+test('compileExpr: TIDAK boleh mengandung perbandingan (beda dengan compile)', () => {
+  assert.throws(() => Formula.compileExpr('r26a + r26b >= 0.5'), /TIDAK BOLEH mengandung perbandingan/);
+  assert.throws(() => Formula.compileExpr('a == b'), /TIDAK BOLEH mengandung perbandingan/);
+});
+
+test('compileExpr: sisa token berlebih non-cmp tetap ditolak', () => {
+  assert.throws(() => Formula.compileExpr('a b'), /berlebih/);
+});
+
+test('compileExpr: kurung tak seimbang & formula kosong tetap ditolak (grammar sama)', () => {
+  assert.throws(() => Formula.compileExpr('(a + b'), /Kurung/);
+  assert.throws(() => Formula.compileExpr('   '), /kosong/);
+});
+
+test('fieldsUsedExpr: kumpulkan alias unik dari ekspresi nilai', () => {
+  assert.deepEqual(Formula.fieldsUsedExpr('(r26a + r26b) / r26_total'), ['r26a', 'r26b', 'r26_total']);
+});

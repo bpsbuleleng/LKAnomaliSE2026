@@ -156,9 +156,11 @@ var MockData = {
     // sheet (termasuk keanehan kecil kayak spasi dobel di r26d), JANGAN
     // "dirapikan" tanpa izin. resetConfig menulis array ini ke sheet, jadi
     // array ini WAJIB tetap sama dengan yang di sheet supaya reset config
-    // tidak menghapus editan user.
-    { question_id: 'nama_usaha', jenis: 'usaha', order: 1, label: '8.a. Nama usaha/perusahaan', type: 'text', options: null, required: true, help: 'Sesuai papan nama atau izin usaha', active: true, roster_group: '' },
-    { question_id: 'r11a', jenis: 'usaha', order: 2, label: '11a. Bentuk badan usaha', type: 'select', options: [
+    // tidak menghapus editan user. Prefix kode (mis. "8.a. ") DIHAPUS dari
+    // label usaha oleh user 2026-07-09 — kodenya sekarang tampil terpisah
+    // di UI lewat question_id (lihat CLAUDE.md "Alur aplikasi").
+    { question_id: 'nama_usaha', jenis: 'usaha', order: 1, label: 'Nama usaha/perusahaan', type: 'text', options: null, required: true, help: 'Sesuai papan nama atau izin usaha', active: true, roster_group: '' },
+    { question_id: 'r11a', jenis: 'usaha', order: 2, label: 'Bentuk badan usaha', type: 'select', options: [
       { value: '1a', label: 'Perseroan (PT/NV, PT Persero, PT Tbk, PT Persero Tbk, Perseroan Daerah' },
       { value: '1b', label: 'Perseroan perorangan' },
       { value: 2, label: 'Yayasan' },
@@ -174,31 +176,31 @@ var MockData = {
       { value: 12, label: 'Badan Usaha Lainnya (Contoh: BLU, PTN-BH)' },
       { value: 13, label: 'Bukan Badan Usaha' }
     ], required: true, help: '', active: true, roster_group: '' },
-    { question_id: 'r13b1', jenis: 'usaha', order: 3, label: '13b1. Apakah memproduksi barang di lokasi ini?', type: 'select', options: [{ value: 1, label: 'Ya' }, { value: 2, label: 'Tidak' }], required: true, help: '', active: true, roster_group: '' },
+    { question_id: 'r13b1', jenis: 'usaha', order: 3, label: 'Apakah memproduksi barang di lokasi ini?', type: 'select', options: [{ value: 1, label: 'Ya' }, { value: 2, label: 'Tidak' }], required: true, help: '', active: true, roster_group: '' },
     // r13g = kode KBLI 5 digit (searchable select, daftar di KbliData.js).
     // r13f (kategori 1 digit) & r13h (kategori huruf A-U) BUKAN baris di
     // sini — dihitung otomatis dari r13g saat submit, lihat ComputedFields.js.
-    { question_id: 'r13g', jenis: 'usaha', order: 4, label: '13g. Kode KBLI (5 digit) kegiatan utama usaha', type: 'kbli', options: null, required: true, help: 'Cari berdasarkan kode atau judul KBLI', active: true, roster_group: '' },
-    { question_id: 'r16a', jenis: 'usaha', order: 5, label: '16a. Apakah menggunakan internet dalam kegiatan usaha?', type: 'select', options: [{ value: 1, label: 'Ya' }, { value: 2, label: 'Tidak' }], required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r11d', jenis: 'usaha', order: 6, label: '11d. Apakah mempunyai laporan/catatan keuangan', type: 'select', options: [{ value: 1, label: 'Ya' }, { value: 2, label: 'Tidak' }], required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r22', jenis: 'usaha', order: 7, label: '22. Apakah terlibat dalam program MBG?', type: 'select', options: [
+    { question_id: 'r13g', jenis: 'usaha', order: 4, label: 'Kode KBLI (5 digit) kegiatan utama usaha', type: 'kbli', options: null, required: true, help: 'Cari berdasarkan kode atau judul KBLI', active: true, roster_group: '' },
+    { question_id: 'r16a', jenis: 'usaha', order: 5, label: 'Apakah menggunakan internet dalam kegiatan usaha?', type: 'select', options: [{ value: 1, label: 'Ya' }, { value: 2, label: 'Tidak' }], required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r11d', jenis: 'usaha', order: 6, label: 'Apakah mempunyai laporan/catatan keuangan', type: 'select', options: [{ value: 1, label: 'Ya' }, { value: 2, label: 'Tidak' }], required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r22', jenis: 'usaha', order: 7, label: 'Apakah terlibat dalam program MBG?', type: 'select', options: [
       { value: 1, label: 'Ya, sebagai SATUAN PELAYANAN PEMENUHAN GIZI (SPPG)' },
       { value: 2, label: 'Ya, sebagai Supplier' },
       { value: 3, label: 'Ya, sebagai penerima manfaat MBG (Sekolah, Puskesmas)' },
       { value: 4, label: 'Ya, peran lainnya' },
       { value: 5, label: 'Tidak terlibat MBG' }
     ], required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r24c1', jenis: 'usaha', order: 8, label: '24c. Total pekerja', type: 'number', options: [{ value: 1, label: 'Ya' }, { value: 2, label: 'Tidak' }], required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r25', jenis: 'usaha', order: 9, label: '25. Tahun mulai beroperasi', type: 'number', options: null, required: true, help: 'Empat digit tahun, mis. 2019', active: true, roster_group: '' },
-    { question_id: 'r26a', jenis: 'usaha', order: 10, label: '26a. Total upah dan gaji, serta jaminan sosial pegawai', type: 'number', options: null, required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r26b', jenis: 'usaha', order: 11, label: '26b. Biaya produksi', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r26c', jenis: 'usaha', order: 12, label: '26c. Biaya pembelian barang yang terjual (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r26d', jenis: 'usaha', order: 13, label: '26d. Biaya operasional  setahun (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r26e', jenis: 'usaha', order: 14, label: '26e. Biaya non-operasional setahun (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r27c', jenis: 'usaha', order: 15, label: '27c. Total nilai pendapatan setahun (Rp)', type: 'currency', options: null, required: true, help: '', active: true, roster_group: '' },
-    { question_id: 'r28c', jenis: 'usaha', order: 16, label: '28c. Perkiraan nilai aset usaha (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r29c', jenis: 'usaha', order: 17, label: '29c. Persentase modal dari korporasi publik (bukan koperasi) (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
-    { question_id: 'r29d', jenis: 'usaha', order: 18, label: '29d. Persentase modal dari korporasi non-publik (bukan koperasi) (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r24c1', jenis: 'usaha', order: 8, label: 'Total pekerja', type: 'number', options: [{ value: 1, label: 'Ya' }, { value: 2, label: 'Tidak' }], required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r25', jenis: 'usaha', order: 9, label: 'Tahun mulai beroperasi', type: 'number', options: null, required: true, help: 'Empat digit tahun, mis. 2019', active: true, roster_group: '' },
+    { question_id: 'r26a', jenis: 'usaha', order: 10, label: 'Total upah dan gaji, serta jaminan sosial pegawai', type: 'number', options: null, required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r26b', jenis: 'usaha', order: 11, label: 'Biaya produksi', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r26c', jenis: 'usaha', order: 12, label: 'Biaya pembelian barang yang terjual (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r26d', jenis: 'usaha', order: 13, label: 'Biaya operasional  setahun (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r26e', jenis: 'usaha', order: 14, label: 'Biaya non-operasional setahun (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r27c', jenis: 'usaha', order: 15, label: 'Total nilai pendapatan setahun (Rp)', type: 'currency', options: null, required: true, help: '', active: true, roster_group: '' },
+    { question_id: 'r28c', jenis: 'usaha', order: 16, label: 'Perkiraan nilai aset usaha (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r29c', jenis: 'usaha', order: 17, label: 'Persentase modal dari korporasi publik (bukan koperasi) (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
+    { question_id: 'r29d', jenis: 'usaha', order: 18, label: 'Persentase modal dari korporasi non-publik (bukan koperasi) (Rp)', type: 'currency', options: null, required: false, help: '', active: true, roster_group: '' },
     { question_id: 'catatan_usaha', jenis: 'usaha', order: 19, label: 'Catatan pemeriksa', type: 'textarea', options: null, required: false, help: '', active: true, roster_group: '' },
     // ---- KELUARGA (field datar) ----
     { question_id: 'b1r13_1', jenis: 'keluarga', order: 1, label: 'Umur Kepala Keluarga (tahun)', type: 'number', options: null, required: true, help: '', active: true, roster_group: '' },

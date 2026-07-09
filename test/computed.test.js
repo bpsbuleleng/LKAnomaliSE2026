@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 
 const ComputedFields = require('../src/ComputedFields.js');
 
-function keluarga(answers) { return ComputedFields.augment('keluarga', answers); }
-function usaha(answers) { return ComputedFields.augment('usaha', answers); }
+function keluarga(answers, refs) { return ComputedFields.augment('keluarga', answers, refs); }
+function usaha(answers, refs) { return ComputedFields.augment('usaha', answers, refs); }
 
 // ==== b1r9: jumlah anggota berkode keberadaan 1 atau 5 ====
 
@@ -89,6 +89,50 @@ test('pangsa & rasio: dihitung dari r26_total; total 0 → null (tidak berlaku)'
   assert.equal(kosong.r26_total, 0);
   assert.equal(kosong.pangsa_biaya_produksi, null);
   assert.equal(kosong.rasio_pendapatan_biaya, null);
+});
+
+// ==== formulaOverrides: field formula-editable (admin bisa override lewat
+// tab "Variabel Hitungan"); field roster/lookup TIDAK ikut mekanisme ini ====
+
+test('formulaOverrides: mengubah hasil field editable (r26_total) tanpa menyentuh kode', () => {
+  const refs = { formulaOverrides: { r26_total: 'r26a + r26b' } }; // abaikan r26c/d/e
+  const out = usaha({ r26a: 10, r26b: 20, r26c: 999, r26d: 999, r26e: 999 }, refs);
+  assert.equal(out.r26_total, 30);
+});
+
+test('formulaOverrides: field hilir (pangsa_biaya_produksi) tetap pakai r26_total hasil override', () => {
+  const refs = { formulaOverrides: { r26_total: 'r26a + r26b' } };
+  const out = usaha({ r26a: 10, r26b: 20, r26c: 999 }, refs);
+  assert.equal(out.r26_total, 30);
+  assert.equal(out.pangsa_biaya_produksi, 20 / 30);
+});
+
+test('formulaOverrides: override rusak (sintaks tidak valid) fallback DIAM-DIAM ke default, submit tidak gagal', () => {
+  const refs = { formulaOverrides: { r26_total: 'r26a + + +' } };
+  const out = usaha({ r26a: 5, r26b: 5, r26c: 5, r26d: 5, r26e: 5 }, refs);
+  assert.equal(out.r26_total, 25); // default = jumlah 5 komponen
+});
+
+test('formulaOverrides: field roster (b1r9) & lookup (batas_rasio_ntb) TIDAK terpengaruh formulaOverrides', () => {
+  const refs = { formulaOverrides: { b1r9: '999' }, ntbRasio: { '01111': 0.5 } };
+  const out = keluarga({ roster: { anggota_keluarga: [{ b1r9_n: 1 }] } }, refs);
+  assert.equal(out.b1r9, 1); // override diabaikan, tetap hasil roster asli
+});
+
+test('listFields: field editable menyertakan defaultFormula; field tetap menyertakan note', () => {
+  const usahaFields = ComputedFields.listFields('usaha');
+  const r26total = usahaFields.find((f) => f.id === 'r26_total');
+  assert.equal(r26total.editable, true);
+  assert.equal(r26total.defaultFormula, 'r26a + r26b + r26c + r26d + r26e');
+  const r13f = usahaFields.find((f) => f.id === 'r13f');
+  assert.equal(r13f.editable, false);
+  assert.equal(typeof r13f.note, 'string');
+});
+
+test('fieldMeta: editable field mengembalikan defaultFormula; field tetap/tak dikenal → editable false / null', () => {
+  assert.deepEqual(ComputedFields.fieldMeta('usaha', 'rasio_ntb'), { editable: true, defaultFormula: '(r27c - r26_total) / r27c' });
+  assert.deepEqual(ComputedFields.fieldMeta('keluarga', 'b1r9'), { editable: false, defaultFormula: null });
+  assert.equal(ComputedFields.fieldMeta('usaha', 'tidak_ada'), null);
 });
 
 // ==== rasio_ntb & batas_rasio_ntb (rule U9) ====

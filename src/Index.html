@@ -647,6 +647,14 @@
       var lbl = document.createElement('label');
       lbl.className = 'block text-sm font-medium mb-1';
       lbl.textContent = q.label + (q.required ? ' *' : '');
+      // question_id kecil di samping label — supaya PML bisa mengenali
+      // variabel yang sama dengan kode di kuesioner kertas/BPS (label sendiri
+      // sudah tidak lagi memuat kode itu, lihat MockData.js).
+      var code = document.createElement('span');
+      code.className = 'ml-1.5 font-mono font-normal text-xs text-slate-400 select-all';
+      code.textContent = q.question_id;
+      code.setAttribute('data-testid', 'q-' + q.question_id + (testidSuffix || '') + '-code');
+      lbl.appendChild(code);
       wrap.appendChild(lbl);
 
       var input;
