@@ -180,8 +180,92 @@ test('evaluateRules: rule terpicu masuk anomalies dengan severity+message', () =
     { rule_id: 'R2', severity: 'warning', message: 'dua', when: { field: 'x', op: '<', value: 0 }, active: true }
   ];
   const res = RuleEvaluator.evaluateRules(rules, { x: 5 });
-  assert.deepEqual(res.anomalies, [{ rule_id: 'R1', severity: 'error', message: 'satu' }]);
+  assert.deepEqual(res.anomalies, [{
+    rule_id: 'R1', severity: 'error', message: 'satu',
+    fields: [{ field: 'x', value: 5 }]
+  }]);
   assert.deepEqual(res.errors, []);
+});
+
+// ==== collectTriggered: field pemicu + nilai (dipakai tampilan anomali) ====
+
+const collect = (when, answers) => RuleEvaluator.collectTriggered(when, answers);
+
+test('collectTriggered: leaf field + field2, dedupe field ganda', () => {
+  assert.deepEqual(collect({ field: 'a', op: '>', field2: 'b' }, { a: 5, b: 3 }),
+    [{ field: 'a', value: 5 }, { field: 'b', value: 3 }]);
+  // Field sama dirujuk 2 leaf (mis. K4 luas < 3 ATAU > 200) → satu entri saja.
+  assert.deepEqual(collect({
+    any: [{ field: 'x', op: '<', value: 3 }, { all: [{ field: 'x', op: '>', value: 0 }, { field: 'x', op: '<', value: 1 }] }]
+  }, { x: 0.5 }), [{ field: 'x', value: 0.5 }]);
+});
+
+test('collectTriggered: value undefined dinormalkan ke null (JSON round-trip aman)', () => {
+  assert.deepEqual(collect({ field: 'x', op: 'empty' }, {}), [{ field: 'x', value: null }]);
+});
+
+test('collectTriggered: anak `any` yang FALSE tidak ikut — cuma cabang pemicu', () => {
+  // Gaya K6: cabang pertama (b4r15a rendah) yang memicu; cabang meteran tidak.
+  const when = {
+    any: [
+      { field: 'b4r15a', op: '<', value: 100000 },
+      { field: 'b4r14a', op: '==', value: 1 }
+    ]
+  };
+  assert.deepEqual(collect(when, { b4r15a: 50000, b4r14a: 3 }),
+    [{ field: 'b4r15a', value: 50000 }]);
+});
+
+test('collectTriggered: roster_any → hanya baris yang cocok, dengan row_index & nilai baris itu', () => {
+  // Gaya K1: baris #2 (index 1) yang memicu.
+  const when = {
+    roster_any: 'anggota_keluarga',
+    condition: { all: [{ field: 'b1r8_n', op: 'in', value: [1, 2] }, { field: 'b1r11_n', op: 'in', value: [1, 3, 4] }] }
+  };
+  const answers = { roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 2 }, // kepala keluarga, kawin — bukan pemicu
+    { b1r8_n: 2, b1r11_n: 3 }  // pasangan, cerai hidup — PEMICU
+  ] } };
+  assert.deepEqual(collect(when, answers), [
+    { field: 'b1r8_n', value: 2, roster_group: 'anggota_keluarga', row_index: 1 },
+    { field: 'b1r11_n', value: 3, roster_group: 'anggota_keluarga', row_index: 1 }
+  ]);
+});
+
+test('collectTriggered: roster_all → semua baris; `any` per-baris cuma ambil kondisi yang benar di baris itu', () => {
+  // Gaya K3: tiap baris cukup satu jenis disabilitas yang == 1.
+  const when = {
+    roster_all: 'anggota_keluarga',
+    condition: { any: [{ field: 'd1', op: '==', value: 1 }, { field: 'd2', op: '==', value: 1 }] }
+  };
+  const answers = { roster: { anggota_keluarga: [{ d1: 1, d2: 2 }, { d1: 2, d2: 1 }] } };
+  assert.deepEqual(collect(when, answers), [
+    { field: 'd1', value: 1, roster_group: 'anggota_keluarga', row_index: 0 },
+    { field: 'd2', value: 1, roster_group: 'anggota_keluarga', row_index: 1 }
+  ]);
+});
+
+test('collectTriggered: roster_count dengan condition → baris cocok; tanpa condition → kosong', () => {
+  const answers = { roster: { g: [{ x: 1 }, { x: 2 }, { x: 1 }] } };
+  assert.deepEqual(collect({ roster_count: 'g', condition: { field: 'x', op: '==', value: 1 }, op: '>=', value: 2 }, answers), [
+    { field: 'x', value: 1, roster_group: 'g', row_index: 0 },
+    { field: 'x', value: 1, roster_group: 'g', row_index: 2 }
+  ]);
+  assert.deepEqual(collect({ roster_count: 'g', op: '>=', value: 1 }, answers), []);
+});
+
+test('collectTriggered: formula → semua field di ekspresinya, dengan nilai scope', () => {
+  assert.deepEqual(collect({ formula: 'r26b / r26_total >= 0.5' }, { r26b: 60, r26_total: 100 }),
+    [{ field: 'r26b', value: 60 }, { field: 'r26_total', value: 100 }]);
+});
+
+test('evaluateRules: anomali membawa fields; rule string JSON pun jalan', () => {
+  const rules = [{
+    rule_id: 'K7', severity: 'warning', message: 'ekstrem',
+    when: '{"field":"b1r9","op":">","value":10}'
+  }];
+  const res = RuleEvaluator.evaluateRules(rules, { b1r9: 12 });
+  assert.deepEqual(res.anomalies[0].fields, [{ field: 'b1r9', value: 12 }]);
 });
 
 // ==== validateWhen: validasi struktur TANPA evaluasi (dipakai config) ====

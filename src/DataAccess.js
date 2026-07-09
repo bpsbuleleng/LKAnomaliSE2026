@@ -125,7 +125,9 @@ function computedRefs_(jenis) {
   var split = splitComputedDefs_(jenis);
   var refs = {
     formulaOverrides: split.overrides,
-    customFields: split.custom.map(function (d) { return { id: d.field_id, formula: d.formula }; })
+    // label ikut dioper: dipakai SubmitLogic melabeli entri `fields` anomali
+    // (ComputedFields.augment sendiri mengabaikannya).
+    customFields: split.custom.map(function (d) { return { id: d.field_id, formula: d.formula, label: d.label }; })
   };
   if (jenis === 'usaha') refs.ntbRasio = ComputedFields.buildNtbRasioMap(SheetDb.readNtbRasio());
   return refs;

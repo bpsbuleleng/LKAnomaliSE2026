@@ -35,6 +35,52 @@ var SubmitLogic = (function () {
     };
   }
 
+  // ---- Pengayaan `fields` anomali (label + display) ----
+  // Entri dari RuleEvaluator.collectTriggered cuma {field, value, ...}; di
+  // sini dilengkapi label pertanyaan/computed dan label opsi kategorik,
+  // supaya anomali tersimpan self-contained (snapshot — tetap benar walau
+  // pertanyaan/opsi diubah admin belakangan) dan client tinggal merender.
+
+  function looseEq(a, b) {
+    var na = Number(a), nb = Number(b);
+    if (!isNaN(na) && !isNaN(nb) && String(a).trim() !== '' && String(b).trim() !== '') return na === nb;
+    return String(a) === String(b);
+  }
+
+  function buildFieldInfo(jenis, questions, refs) {
+    var d = deps();
+    var info = {};
+    (questions || []).forEach(function (q) {
+      info[q.question_id] = { label: q.label, options: q.options || null, computed: false };
+    });
+    d.ComputedFields.listFields(jenis).forEach(function (f) {
+      info[f.id] = { label: f.label, options: null, computed: true };
+    });
+    ((refs && refs.customFields) || []).forEach(function (cf) {
+      info[cf.id] = { label: cf.label || cf.id, options: null, computed: true };
+    });
+    return info;
+  }
+
+  function enrichAnomalyFields(anomalies, fieldInfo) {
+    (anomalies || []).forEach(function (a) {
+      (a.fields || []).forEach(function (e) {
+        var fi = fieldInfo[e.field];
+        if (!fi) return; // field tak dikenal (mis. pertanyaan nonaktif) — biarkan apa adanya
+        e.label = fi.label;
+        if (fi.computed) e.computed = true;
+        if (fi.options && e.value !== null && e.value !== undefined && e.value !== '') {
+          for (var i = 0; i < fi.options.length; i++) {
+            if (looseEq(fi.options[i].value, e.value)) {
+              e.display = fi.options[i].value + '. ' + fi.options[i].label;
+              break;
+            }
+          }
+        }
+      });
+    });
+  }
+
   /**
    * @param input     {record_id?, jenis, idsubsls?, answers} dari client —
    *                  bentuk sama dengan saveDraft (submit membawa jawaban
@@ -66,6 +112,7 @@ var SubmitLogic = (function () {
 
     var answers = d.ComputedFields.augment(rec.jenis, rec.answers, refs);
     var evalRes = d.RuleEvaluator.evaluateRules(rules, answers);
+    enrichAnomalyFields(evalRes.anomalies, buildFieldInfo(rec.jenis, questions, refs));
 
     var updated = {};
     Object.keys(rec).forEach(function (k) { updated[k] = rec[k]; });

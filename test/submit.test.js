@@ -68,6 +68,30 @@ test('submit lengkap → status submitted, computed fields tersimpan di answers,
   assert.equal(rec.answers.b3r18c, 4000000);
 });
 
+test('anomali membawa `fields`: label pertanyaan, display opsi kategorik, penanda computed', () => {
+  const answers = keluargaBase();
+  answers.b1r13_1 = 8; // K2 (umur KK < 10 + rumah milik sendiri)
+  answers.b4r5 = 900;  // K4 (luas per kapita 900/4 = 225 > 200 — via computed)
+  const res = submit([], KADEK, { jenis: 'keluarga', idsubsls: IDSUBSLS, answers }, T1, 'R-1');
+  assert.equal(res.submitted, true);
+
+  const k2 = res.anomalies.find((a) => a.rule_id === 'K2');
+  assert.deepEqual(k2.fields, [
+    { field: 'b1r13_1', value: 8, label: 'Umur Kepala Keluarga (tahun)' },
+    { field: 'b4r3a', value: 1, label: 'Status kepemilikan bangunan tempat tinggal yang ditempati', display: '1. Milik sendiri' }
+  ]);
+
+  // K4 merujuk computed field → ada label + penanda computed (client tahu
+  // tidak ada input kuesioner untuk di-scroll), nilai hasil hitungan ikut.
+  const k4 = res.anomalies.find((a) => a.rule_id === 'K4');
+  assert.deepEqual(k4.fields, [
+    { field: 'luas_per_kapita', value: 225, label: 'Luas lantai per kapita m² (hitungan)', computed: true }
+  ]);
+
+  // fields ikut tersimpan di record (snapshot bersama anomalinya).
+  assert.deepEqual(res.records[0].anomalies, res.anomalies);
+});
+
 test('rule NONAKTIF (K99) tidak pernah jalan — filter active di caller', () => {
   // K99 (not_empty b1r13_1) akan SELALU terpicu kalau filter bocor.
   const res = submit([], KADEK, { jenis: 'keluarga', idsubsls: IDSUBSLS, answers: keluargaBase() }, T1, 'R-1');

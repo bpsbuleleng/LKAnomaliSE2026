@@ -1131,12 +1131,102 @@
       warning: 'bg-amber-100 text-amber-800'
     };
 
+    // Nilai jawaban untuk baris field anomali — angka diformat id-ID, rasio
+    // dibulatkan 4 desimal supaya 0.5714285714 tidak memenuhi layar.
+    function fmtAnswer(v) {
+      if (v === null || v === undefined || v === '') return '(kosong)';
+      if (typeof v === 'number' && isFinite(v)) {
+        return (Math.round(v * 10000) / 10000).toLocaleString('id-ID', { maximumFractionDigits: 4 });
+      }
+      return String(v);
+    }
+
+    // Highlight sesaat pakai outline — BUKAN ring, karena ring dipakai penanda
+    // field wajib kosong (renderMissing) dan penghapusannya bakal saling timpa.
+    var FLASH_CLS = ['outline', 'outline-2', 'outline-orange-500', 'outline-offset-2'];
+    function flashField(node) {
+      FLASH_CLS.forEach(function (c) { node.classList.add(c); });
+      // 3 detik: smooth scroll jarak jauh (roster panjang) bisa makan 1-2,5
+      // detik sendiri — flash harus masih terlihat begitu field-nya sampai.
+      setTimeout(function () {
+        FLASH_CLS.forEach(function (c) { node.classList.remove(c); });
+      }, 3000);
+    }
+
+    // Klik entri field anomali → tutup dialog anomali (kalau terbuka), scroll
+    // ke input pertanyaannya di kuesioner, lalu flash. Field computed tidak
+    // pernah dirender di kuesioner — tidak ada target scroll.
+    function scrollToAnomalyField(f) {
+      if (f.computed) {
+        UiFx.toast('Variabel hasil hitungan — tidak ada isian di kuesioner.');
+        return;
+      }
+      // Baris roster bisa sedang dilipat — buka lewat toggle supaya chevron ikut.
+      if (f.roster_group && f.row_index != null) {
+        var body = document.querySelector('[data-testid="roster-body-' + f.roster_group + '-' + f.row_index + '"]');
+        if (body && body.classList.contains('hidden')) {
+          var tgl = document.querySelector('[data-testid="roster-toggle-' + f.roster_group + '-' + f.row_index + '"]');
+          if (tgl) tgl.click();
+        }
+      }
+      var suffix = f.row_index != null ? '-' + f.row_index : '';
+      var target = document.querySelector('#view-record [data-testid="q-' + f.field + suffix + '"]') ||
+        document.getElementById('qanchor-' + f.field);
+      if (!target) {
+        UiFx.toast('Field tidak ditemukan di kuesioner (mungkin pertanyaan sudah nonaktif).');
+        return;
+      }
+      var dlg = el('anomaly-dialog');
+      if (!dlg.classList.contains('hidden')) UiFx.closeDialog(dlg);
+      if (target.scrollIntoView) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      flashField(target);
+    }
+
+    // Baris "field pemicu": label + kode + konteks baris roster, jawaban di
+    // kanan. Tersimpan sebagai snapshot di anomali (diisi server saat submit).
+    function anomalyFieldEntry(f) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('data-testid', 'anomaly-field');
+      btn.className = 'w-full flex items-center justify-between gap-2 text-left rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 min-h-[44px] active:bg-orange-50';
+      var left = document.createElement('span');
+      left.className = 'min-w-0';
+      var name = document.createElement('span');
+      name.className = 'block text-xs font-medium text-slate-700 leading-snug';
+      name.textContent = (f.label || f.field) + (f.roster_group && f.row_index != null
+        ? ' — ' + rosterTitle(f.roster_group) + ' #' + (f.row_index + 1) : '');
+      var code = document.createElement('span');
+      code.className = 'block font-mono text-[11px] text-slate-400';
+      code.textContent = f.field + (f.computed ? ' · hasil hitungan' : '');
+      left.appendChild(name);
+      left.appendChild(code);
+      var right = document.createElement('span');
+      right.className = 'shrink-0 max-w-[45%] flex items-center gap-1.5';
+      var val = document.createElement('span');
+      val.setAttribute('data-testid', 'anomaly-field-value');
+      val.className = 'text-sm font-semibold text-slate-800 truncate';
+      val.textContent = f.display || fmtAnswer(f.value);
+      right.appendChild(val);
+      if (!f.computed) {
+        var arrow = document.createElement('span');
+        arrow.className = 'text-slate-400';
+        arrow.textContent = '›'; // › — penanda bisa diklik menuju field
+        right.appendChild(arrow);
+      }
+      btn.appendChild(left);
+      btn.appendChild(right);
+      btn.addEventListener('click', function () { scrollToAnomalyField(f); });
+      return btn;
+    }
+
     function renderAnomalyList(listEl, anomalies) {
       listEl.innerHTML = '';
       (anomalies || []).forEach(function (a) {
         var li = document.createElement('li');
         li.setAttribute('data-testid', 'anomaly-item');
-        li.className = 'flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3';
+        li.className = 'rounded-lg border border-slate-200 bg-white p-3 space-y-2';
+        var head = document.createElement('div');
+        head.className = 'flex items-start gap-2';
         var badge = document.createElement('span');
         badge.className = 'shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ' +
           (SEVERITY_CLS[a.severity] || SEVERITY_CLS.warning);
@@ -1144,8 +1234,17 @@
         var msg = document.createElement('p');
         msg.className = 'text-sm';
         msg.textContent = a.message;
-        li.appendChild(badge);
-        li.appendChild(msg);
+        head.appendChild(badge);
+        head.appendChild(msg);
+        li.appendChild(head);
+        // Record lama (submit sebelum fitur ini) belum punya `fields` —
+        // tampil seperti dulu, lengkap lagi setelah disubmit ulang.
+        if (a.fields && a.fields.length) {
+          var fwrap = document.createElement('div');
+          fwrap.className = 'space-y-1.5';
+          a.fields.forEach(function (f) { fwrap.appendChild(anomalyFieldEntry(f)); });
+          li.appendChild(fwrap);
+        }
         listEl.appendChild(li);
       });
       UiFx.staggerIn(listEl.children, 50);

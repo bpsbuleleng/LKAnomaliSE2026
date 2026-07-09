@@ -130,6 +130,66 @@ var RuleEvaluator = (function () {
     throw new Error('Bentuk kondisi tidak dikenali: ' + JSON.stringify(Object.keys(when)));
   }
 
+  /**
+   * Kumpulkan field yang MEMBUAT kondisi terpicu, berikut nilai jawabannya —
+   * dipanggil HANYA setelah evaluate(when, answers) === true. Turun cuma ke
+   * cabang yang benar: anak `all` pasti semuanya benar, anak `any` disaring
+   * evaluate ulang, roster_* cuma baris yang cocok (roster_all = semua baris).
+   * Nilai diambil dari scope saat itu (baris roster untuk kondisi roster) —
+   * snapshot bersama anomali, bukan live-join ke answers.
+   * @return [{field, value, roster_group?, row_index?}] — value undefined
+   *         dinormalkan ke null supaya selamat JSON round-trip ke Sheets.
+   */
+  function collectTriggered(when, answers) {
+    var out = [];
+    var seen = {};
+    function push(field, scope, ctx) {
+      var key = (ctx ? ctx.group + '#' + ctx.index : '') + '|' + field;
+      if (seen[key]) return;
+      seen[key] = true;
+      var entry = { field: field, value: scope[field] === undefined ? null : scope[field] };
+      if (ctx) { entry.roster_group = ctx.group; entry.row_index = ctx.index; }
+      out.push(entry);
+    }
+    function walk(node, scope, ctx) {
+      if (typeof node === 'string') node = JSON.parse(node);
+      if (Array.isArray(node.all)) {
+        node.all.forEach(function (c) { walk(c, scope, ctx); });
+        return;
+      }
+      if (Array.isArray(node.any)) {
+        node.any.forEach(function (c) { if (evaluate(c, scope)) walk(c, scope, ctx); });
+        return;
+      }
+      if (typeof node.roster_any === 'string' || typeof node.roster_all === 'string') {
+        var group = node.roster_any !== undefined ? node.roster_any : node.roster_all;
+        rosterRows(scope, group).forEach(function (row, i) {
+          // roster_all: semua baris pasti cocok (induk sudah true) — evaluate
+          // tetap dipakai sebagai satu jalur seragam dengan roster_any.
+          if (evaluate(node.condition, row)) walk(node.condition, row, { group: group, index: i });
+        });
+        return;
+      }
+      if (typeof node.roster_count === 'string') {
+        if (!node.condition) return; // hitung semua baris: tak ada field per-baris
+        rosterRows(scope, node.roster_count).forEach(function (row, i) {
+          if (evaluate(node.condition, row)) walk(node.condition, row, { group: node.roster_count, index: i });
+        });
+        return;
+      }
+      if (typeof node.formula === 'string') {
+        formulaLib().fieldsUsed(node.formula).forEach(function (f) { push(f, scope, ctx); });
+        return;
+      }
+      if (typeof node.field === 'string') {
+        push(node.field, scope, ctx);
+        if (typeof node.field2 === 'string') push(node.field2, scope, ctx);
+      }
+    }
+    walk(when, answers || {}, null);
+    return out;
+  }
+
   var VALID_OPS = ['==', '!=', '>', '>=', '<', '<=', 'in', 'not_in', 'empty', 'not_empty', 'regex'];
   var COUNT_OPS = ['==', '!=', '>', '>=', '<', '<='];
 
@@ -199,7 +259,7 @@ var RuleEvaluator = (function () {
   /**
    * Jalankan daftar rule (HARUS sudah difilter active oleh caller) atas
    * answers yang sudah ditambah computed fields.
-   * @return { anomalies: [{rule_id, severity, message}], errors: [{rule_id, error}] }
+   * @return { anomalies: [{rule_id, severity, message, fields}], errors: [{rule_id, error}] }
    */
   function evaluateRules(rules, answers) {
     var anomalies = [];
@@ -207,7 +267,11 @@ var RuleEvaluator = (function () {
     (rules || []).forEach(function (rule) {
       try {
         if (evaluate(rule.when, answers)) {
-          anomalies.push({ rule_id: rule.rule_id, severity: rule.severity, message: rule.message });
+          var a = { rule_id: rule.rule_id, severity: rule.severity, message: rule.message };
+          // fields = pelengkap tampilan — gagal mengumpulkan TIDAK boleh
+          // menggugurkan anomali yang sudah terbukti terpicu.
+          try { a.fields = collectTriggered(rule.when, answers); } catch (e) { a.fields = []; }
+          anomalies.push(a);
         }
       } catch (e) {
         errors.push({ rule_id: rule.rule_id, error: String(e && e.message || e) });
@@ -216,7 +280,10 @@ var RuleEvaluator = (function () {
     return { anomalies: anomalies, errors: errors };
   }
 
-  return { evaluate: evaluate, evaluateRules: evaluateRules, validateWhen: validateWhen };
+  return {
+    evaluate: evaluate, evaluateRules: evaluateRules, validateWhen: validateWhen,
+    collectTriggered: collectTriggered
+  };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {
