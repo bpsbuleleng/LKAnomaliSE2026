@@ -1,12 +1,17 @@
 /**
  * Set data test sesuai "Strategi sampel test record" di CLAUDE.md:
  * 1 record bersih per jenis + 1 record per rule aktif (mengisolasi rule itu
- * saja) + 1 multi-trigger per jenis = 18 record untuk 14 rule aktif.
+ * saja) + 1 multi-trigger per jenis = 19 record untuk 15 rule aktif.
  *
  * Tiap fixture dibangun dari record dasar yang BERSIH (0 anomali) lalu
  * diubah seminimal mungkin supaya HANYA rule target yang terpicu — kalau
  * evaluator/computed berubah dan memicu rule lain, test langsung gagal.
  */
+
+// Potongan tab "Rasio NTB SE2016" untuk refs.ntbRasio (nilai riil dari tab
+// live): cukup kode yang dipakai fixture. Kode lain → batas null → U9 tidak
+// berlaku.
+var TEST_NTB_RASIO = { '01111': 0.8127 };
 
 // Anggota roster default: anak, tinggal di keluarga, belum kawin, tanpa
 // pendapatan, tanpa disabilitas.
@@ -44,10 +49,11 @@ function keluargaBase() {
 // Usaha bersih: memproduksi barang (r13b1=1), total biaya 50jt (pangsa
 // produksi 0,4), pendapatan 55jt → rasio 1,1 (di antara 1 dan 1,25), aset
 // kecil, 2 pekerja (r24c1, bukan 1 → U5 aman), pakai internet & menyusun
-// laporan keuangan.
+// laporan keuangan. KBLI 01111 → rasio NTB 5jt/55jt ≈ 0,09, jauh di bawah
+// batas 0,8127 → U9 aman.
 function usahaBase() {
   return {
-    nama_usaha: 'WARUNG SEGARA', r11a: 2, r13b1: 1, r16a: 1, r11d: 1,
+    nama_usaha: 'WARUNG SEGARA', r11a: 2, r13b1: 1, r13g: '01111', r16a: 1, r11d: 1,
     r22: 1, r24c1: 2, r25: 2019,
     r26a: 10000000, r26b: 20000000, r26c: 10000000, r26d: 5000000, r26e: 5000000,
     r27c: 55000000, r28c: 8000000, r29c: 0, r29d: 0,
@@ -121,10 +127,17 @@ var TEST_RECORDS = [
   make('u6-besar-tanpa-internet', 'usaha', ['U6'], usahaBase, function (a) {
     a.r16a = 2; a.r27c = 15000000000;
     a.r22 = 2; // rasio 300 akan memicu U4 kalau dibiarkan "Ya, sebagai SPPG" (1)
+    delete a.r13g; // rasio NTB ≈ 0,997 pasti > batas mana pun — kosongkan KBLI supaya U9 tidak ikut (isolasi)
   }),
   make('u7-besar-tanpa-laporan', 'usaha', ['U7'], usahaBase, function (a) {
     a.r11d = 2; a.r27c = 15000000000;
     a.r22 = 2; // idem U6
+    delete a.r13g; // idem U6
+  }),
+  make('u9-rasio-ntb-tinggi', 'usaha', ['U9'], usahaBase, function (a) {
+    a.r26a = 2000000; a.r26b = 3000000; a.r26c = 2000000; a.r26d = 1000000; a.r26e = 1000000;
+    // total biaya 9jt, pendapatan 55jt → rasio_ntb 46/55 ≈ 0,836 > 0,8127 (batas 01111)
+    a.r22 = 2; // rasio pendapatan/biaya 6,1 akan memicu U4 kalau tetap SPPG
   }),
 
   // ---- Usaha: multi-trigger ----
@@ -133,4 +146,4 @@ var TEST_RECORDS = [
   })
 ];
 
-module.exports = { TEST_RECORDS: TEST_RECORDS, keluargaBase: keluargaBase, usahaBase: usahaBase, member: member };
+module.exports = { TEST_RECORDS: TEST_RECORDS, TEST_NTB_RASIO: TEST_NTB_RASIO, keluargaBase: keluargaBase, usahaBase: usahaBase, member: member };

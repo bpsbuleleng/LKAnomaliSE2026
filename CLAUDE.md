@@ -41,6 +41,8 @@ Spreadsheet acuan: **"Database LK Anomali SE2026"** (ID `1-AaXOXyy83Txn5xKxN9HpD
 4. **`Questions`** — BASELINE untuk pertanyaan NON-roster. Kolom: `question_id`, `jenis` (`usaha`|`keluarga`), `order`, `label`, `type` (`text`|`number`|`select`|`date`|`textarea`), `options` (JSON array untuk select), `required` (`TRUE`/`FALSE`), `help` (opsional), `active` (`TRUE`/`FALSE`, default `TRUE`), `roster_group` (kosong = bukan roster; lihat "GAP ARSITEKTUR"). `active=FALSE` = soft-delete: hilang dari kuesioner baru, tapi record lama yang sudah punya jawaban untuk `question_id` itu tetap dirender apa adanya — JANGAN pernah hard-delete baris ini.
 5. **`Rules`** — BASELINE untuk rule kondisi-sederhana. Kolom: `rule_id`, `jenis`, `severity` (`error`|`warning`), `message`, `when` (JSON string, format di bawah), `active` (`TRUE`/`FALSE`). **Belum cukup untuk semua 16 anomali riil — lihat "GAP ARSITEKTUR".**
 
+6. **`Rasio NTB SE2016`** (gid=595141439, ditambahkan user 2026-07-09) — tab REFERENSI (app hanya baca), ~2560 baris. Kolom: `KBLI 2025` (kode 5 digit, TEXT — leading zero!), `Judul KBLI 2025`, `Kategori KBLI 2020`, `Rasio NTB SE 2016` (desimal titik, rentang riil 0.057–0.8456). Dipakai computed field `batas_rasio_ntb` untuk rule `U9`. **Data-quality**: 1559 kode unik, tapi **125 kode muncul >1 kali dengan rasio BERBEDA** (kode sama terpetakan ke >1 kategori, mis. `01284` → 0.7641 & 0.8362) — kebijakan yang dipakai: ambil rasio **TERBESAR** (konservatif: anomali hanya kalau melebihi batas tertinggi; lihat `buildNtbRasioMap` di ComputedFields.js). Tab hilang/kosong → `batas_rasio_ntb` null → U9 tidak berlaku, submit tetap jalan.
+
 > **Catatan istilah**: "daftar anomali" dan "rule validation" merujuk ke ENTITY YANG SAMA — satu baris di tab `Rules` = satu anomali (`message`) sekaligus logika deteksinya (`when`). Halaman config cuma punya 2 bagian (Kelola Pertanyaan, Kelola Rule), bukan 3.
 
 ### GAP ARSITEKTUR — pertanyaan roster & rule agregat (BELUM FINAL — jangan bangun Fase 2/3 serius sebelum ini diputuskan)
@@ -164,6 +166,12 @@ U4: { "all": [{"field":"r22","op":"==","value":1}, {"any":[{"field":"rasio_penda
 U5: { "all": [{"field":"r28c","op":">","value":10000000}, {"field":"r24c1","op":"==","value":1}, {"field":"r27c","op":"<","value":60000000}] }   ← BERSIH SEPENUHNYA
 U6: { "all": [{"field":"r16a","op":"==","value":2}, {"field":"r25","op":"<","value":2026}, {"field":"r27c","op":">=","value":15000000000}] }   ← BERSIH SEPENUHNYA
 U7: { "all": [{"field":"r11d","op":"==","value":2}, {"field":"r25","op":"<","value":2026}, {"field":"r27c","op":">=","value":15000000000}] }   ← BERSIH SEPENUHNYA
+```
+
+`U9` (Rasio NTB Tinggi — rule BARU 2026-07-09, di LUAR 16 anomali awal): rasio NTB = `(r27c − r26_total) ÷ r27c` (rujukan sirusa.web.bps.go.id/metadata/indikator/4621), dibandingkan batas per kode KBLI `r13g` dari tab `Rasio NTB SE2016` (skema tab no. 6, termasuk kebijakan kode dobel → ambil terbesar). Dua computed field baru saat submit: `rasio_ntb` (r27c 0/kosong → null) dan `batas_rasio_ntb` (lookup r13g; kode tak ada di tab → null → rule tidak berlaku). Tabel lookup dioper ke ComputedFields lewat parameter `refs` (dibaca `SheetDb.readNtbRasio()` hanya untuk jenis usaha, dipakai submit DAN preview):
+
+```json
+{ "field": "rasio_ntb", "op": ">", "field2": "batas_rasio_ntb" }
 ```
 
 `U8` (Perbedaan KBLI 2 digit Pendataan dan SBR): **DIKONFIRMASI EXCLUDED dari v1** — bukan rule per-record (butuh agregasi lintas-record + data eksternal SBR yang gak kita punya). TIDAK masuk tab `Rules`. Kalau nanti dibutuhkan, jadi fitur laporan admin terpisah, di luar scope dokumen ini.

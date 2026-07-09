@@ -42,8 +42,10 @@ var SubmitLogic = (function () {
    *                  bisa langsung disubmit).
    * @param questions pertanyaan AKTIF jenis ini (untuk validasi required)
    * @param rules     rule AKTIF jenis ini (untuk evaluasi anomali)
+   * @param refs      tabel referensi computed fields (opsional) — mis.
+   *                  { ntbRasio } untuk batas_rasio_ntb; lihat ComputedFields.
    */
-  function applySubmit(records, pmlEmail, input, assignedRows, questions, rules, nowIso, newId) {
+  function applySubmit(records, pmlEmail, input, assignedRows, questions, rules, nowIso, newId, refs) {
     var d = deps();
     var saved = d.RecordLogic.applySaveDraft(records, pmlEmail, input, assignedRows, nowIso, newId);
     if (!saved.ok) return saved;
@@ -62,7 +64,7 @@ var SubmitLogic = (function () {
       };
     }
 
-    var answers = d.ComputedFields.augment(rec.jenis, rec.answers);
+    var answers = d.ComputedFields.augment(rec.jenis, rec.answers, refs);
     var evalRes = d.RuleEvaluator.evaluateRules(rules, answers);
 
     var updated = {};

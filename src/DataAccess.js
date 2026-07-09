@@ -99,6 +99,15 @@ function deleteRecord(pmlEmail, recordId) {
  * SubmitLogic. Validasi gagal → { ok:true, submitted:false, missing } dan
  * jawaban TETAP tersimpan (draft). Submit ulang me-rerun rule tanpa syarat.
  */
+// Tabel referensi untuk computed field lookup (batas_rasio_ntb) — dibaca
+// hanya untuk jenis usaha; tab hilang/kosong → map kosong (rule NTB tidak
+// berlaku, submit tetap jalan). Dipakai submitRecord DAN previewRule supaya
+// perilaku preview identik dengan submit.
+function computedRefs_(jenis) {
+  if (jenis !== 'usaha') return {};
+  return { ntbRasio: ComputedFields.buildNtbRasioMap(SheetDb.readNtbRasio()) };
+}
+
 function submitRecord(pmlEmail, record) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -109,7 +118,7 @@ function submitRecord(pmlEmail, record) {
     var rules = RuleLogic.selectRules(SheetDb.readRules(), jenis, false);
     var res = SubmitLogic.applySubmit(
       SheetDb.readRecords(), pmlEmail, record, assigned, questions, rules,
-      new Date().toISOString(), 'R-' + Utilities.getUuid()
+      new Date().toISOString(), 'R-' + Utilities.getUuid(), computedRefs_(jenis)
     );
     if (!res.ok) return res;
     SheetDb.upsertRecord(pickRecord_(res.records, res.record_id));
@@ -282,7 +291,7 @@ function previewRule(adminPassword, jenis, when, answers) {
   var v = RuleEvaluator.validateWhen(when);
   if (!v.ok) return { ok: false, error: 'INVALID_WHEN', detail: v.error };
   var parsed = typeof when === 'string' ? JSON.parse(when) : when;
-  var augmented = ComputedFields.augment(jenis, answers || {});
+  var augmented = ComputedFields.augment(jenis, answers || {}, computedRefs_(jenis));
   try {
     return { ok: true, triggered: RuleEvaluator.evaluate(parsed, augmented), answers: augmented };
   } catch (e) {

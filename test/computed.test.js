@@ -91,6 +91,39 @@ test('pangsa & rasio: dihitung dari r26_total; total 0 → null (tidak berlaku)'
   assert.equal(kosong.rasio_pendapatan_biaya, null);
 });
 
+// ==== rasio_ntb & batas_rasio_ntb (rule U9) ====
+
+test('rasio_ntb: (r27c − r26_total) ÷ r27c; r27c 0/kosong → null', () => {
+  const out = usaha({ r26a: 4000000, r26b: 5000000, r27c: 55000000 });
+  assert.equal(out.r26_total, 9000000);
+  assert.equal(out.rasio_ntb, 46000000 / 55000000);
+  assert.equal(usaha({ r26a: 1000 }).rasio_ntb, null);          // r27c kosong
+  assert.equal(usaha({ r26a: 1000, r27c: 0 }).rasio_ntb, null); // r27c 0
+  // biaya > pendapatan → rasio negatif (bukan null) — U9 aman, U2 yang menangkap
+  assert.equal(usaha({ r26a: 60000000, r27c: 50000000 }).rasio_ntb, -0.2);
+});
+
+test('batas_rasio_ntb: lookup r13g di refs.ntbRasio; tanpa refs / kode tak dikenal → null', () => {
+  const refs = { ntbRasio: { '01111': 0.8127 } };
+  assert.equal(ComputedFields.augment('usaha', { r13g: '01111' }, refs).batas_rasio_ntb, 0.8127);
+  assert.equal(ComputedFields.augment('usaha', { r13g: '99999' }, refs).batas_rasio_ntb, null);
+  assert.equal(ComputedFields.augment('usaha', {}, refs).batas_rasio_ntb, null);
+  assert.equal(usaha({ r13g: '01111' }).batas_rasio_ntb, null); // tanpa refs
+});
+
+test('buildNtbRasioMap: string→number, duplikat ambil MAX, baris rusak dilewati', () => {
+  const map = ComputedFields.buildNtbRasioMap([
+    { kode: '01111', rasio: '0.8127' },
+    { kode: '01284', rasio: '0.7641' },
+    { kode: '01284', rasio: '0.8362' }, // duplikat riil (2 kategori) → ambil terbesar
+    { kode: '01284', rasio: '0.7000' }, // duplikat lebih kecil setelah max → tetap max
+    { kode: '', rasio: '0.5' },         // tanpa kode
+    { kode: '99000', rasio: '' },       // rasio kosong
+    { kode: '99001', rasio: 'abc' }     // rasio non-numerik
+  ]);
+  assert.deepEqual(map, { '01111': 0.8127, '01284': 0.8362 });
+});
+
 // ==== jumlah_<roster>: banyak baris roster (apa pun isinya) ====
 
 test('jumlah_anggota_keluarga & jumlah_meteran_listrik: hitung SEMUA baris', () => {

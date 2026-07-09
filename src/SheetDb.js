@@ -20,7 +20,8 @@ var SheetDb = (function () {
     ALOKASI: 'Alokasi Wilayah',
     RECORDS: 'Records',
     QUESTIONS: 'Questions',
-    RULES: 'Rules'
+    RULES: 'Rules',
+    NTB: 'Rasio NTB SE2016'
   };
 
   var PETUGAS_HEADERS = ['Nama Lengkap', 'Posisi', 'Posisi Daftar', 'Alamat Detail', 'Jenis Kelamin', 'SOBAT ID', 'Email'];
@@ -32,6 +33,9 @@ var SheetDb = (function () {
     .concat(['answers', 'anomalies', 'created_at', 'updated_at']);
   var QUESTION_HEADERS = ['question_id', 'jenis', 'order', 'label', 'type', 'options', 'required', 'help', 'active', 'roster_group'];
   var RULE_HEADERS = ['rule_id', 'jenis', 'severity', 'message', 'when', 'active'];
+  // Tab referensi buatan user (~2560 baris, kode KBLI 5 digit → rasio NTB
+  // SE2016) — app hanya baca, dipakai computed field batas_rasio_ntb (U9).
+  var NTB_HEADERS = ['KBLI 2025', 'Judul KBLI 2025', 'Kategori KBLI 2020', 'Rasio NTB SE 2016'];
 
   // Satu handle spreadsheet per eksekusi (global GAS hidup sepanjang satu
   // panggilan google.script.run saja — ini memo, bukan state antar panggilan).
@@ -129,6 +133,18 @@ var SheetDb = (function () {
 
   function readPetugas() { return readTable(TABS.PETUGAS); }
   function readAlokasi() { return readTable(TABS.ALOKASI); }
+
+  /**
+   * Baca tab "Rasio NTB SE2016" jadi [{kode, rasio}] (string apa adanya —
+   * leading zero KBLI selamat via getDisplayValues). Tab belum ada → []
+   * (submit tetap jalan, batas_rasio_ntb null = rule NTB tidak berlaku).
+   */
+  function readNtbRasio() {
+    if (!ss().getSheetByName(TABS.NTB)) return [];
+    return readTable(TABS.NTB).map(function (r) {
+      return { kode: s_(r[NTB_HEADERS[0]]), rasio: s_(r[NTB_HEADERS[3]]) };
+    });
+  }
 
   function petugasToRow_(p) { return PETUGAS_HEADERS.map(function (h) { return s_(p[h]); }); }
   function alokasiToRow_(a) { return ALOKASI_HEADERS.map(function (h) { return s_(a[h]); }); }
@@ -324,7 +340,7 @@ var SheetDb = (function () {
 
   // ==== status/diagnostik ====
 
-  /** Ringkasan kondisi 5 tab + peringatan leading-zero — dipakai adminSheetStatus. */
+  /** Ringkasan kondisi tab aplikasi & referensi + peringatan leading-zero — dipakai adminSheetStatus. */
   function tabStatus() {
     var expected = {};
     expected[TABS.PETUGAS] = PETUGAS_HEADERS;
@@ -332,6 +348,7 @@ var SheetDb = (function () {
     expected[TABS.RECORDS] = RECORD_HEADERS;
     expected[TABS.QUESTIONS] = QUESTION_HEADERS;
     expected[TABS.RULES] = RULE_HEADERS;
+    expected[TABS.NTB] = NTB_HEADERS;
 
     var out = {};
     Object.keys(expected).forEach(function (name) {
@@ -372,6 +389,7 @@ var SheetDb = (function () {
     TABS: TABS,
     readPetugas: readPetugas,
     readAlokasi: readAlokasi,
+    readNtbRasio: readNtbRasio,
     readRecords: readRecords,
     upsertRecord: upsertRecord,
     deleteRecordRow: deleteRecordRow,
@@ -393,7 +411,8 @@ var SheetDb = (function () {
       ALOKASI: ALOKASI_HEADERS,
       RECORDS: RECORD_HEADERS,
       QUESTIONS: QUESTION_HEADERS,
-      RULES: RULE_HEADERS
+      RULES: RULE_HEADERS,
+      NTB: NTB_HEADERS
     }
   };
 })();

@@ -108,6 +108,45 @@ var ComputedFields = (function () {
     return total > 0 ? num(a.r27c) / total : null;
   }
 
+  // rasio_ntb = (r27c − r26_total) ÷ r27c — rasio Nilai Tambah Bruto
+  // (sirusa.web.bps.go.id/metadata/indikator/4621). r27c 0/kosong → null.
+  function rasioNtb(a) {
+    var pendapatan = num(a.r27c);
+    return pendapatan > 0 ? (pendapatan - num(a.r26_total)) / pendapatan : null;
+  }
+
+  // batas_rasio_ntb = lookup rasio NTB SE2016 per kode KBLI r13g dari tab
+  // "Rasio NTB SE2016" (dioper caller lewat refs.ntbRasio — modul ini tetap
+  // bebas dependency GAS). Kode tak ada di tabel / tabel tak dioper → null
+  // (rule U9 tidak berlaku, konsisten semantik nilai kosong evaluator).
+  function batasRasioNtb(a, refs) {
+    var map = refs && refs.ntbRasio;
+    if (!map) return null;
+    var kode = String(a.r13g == null ? '' : a.r13g).trim();
+    if (!kode || !Object.prototype.hasOwnProperty.call(map, kode)) return null;
+    var v = Number(map[kode]);
+    return isNaN(v) ? null : v;
+  }
+
+  /**
+   * Bangun map {kode KBLI → rasio NTB} dari baris mentah tab "Rasio NTB
+   * SE2016" ({kode, rasio} string apa adanya). Baris tanpa kode / rasio
+   * non-numerik dilewati. Tab riil punya 125 kode DUPLIKAT dengan rasio
+   * berbeda (satu kode terpetakan ke >1 kategori) — kebijakan: ambil yang
+   * TERBESAR, konservatif: anomali hanya kalau melebihi batas tertinggi.
+   */
+  function buildNtbRasioMap(rows) {
+    var map = {};
+    (rows || []).forEach(function (r) {
+      var kode = String(r && r.kode != null ? r.kode : '').trim();
+      if (!kode || r.rasio === '' || r.rasio == null) return;
+      var rasio = Number(r.rasio);
+      if (isNaN(rasio)) return;
+      if (!(kode in map) || rasio > map[kode]) map[kode] = rasio;
+    });
+    return map;
+  }
+
   // Urutan penting: field yang bergantung field computed lain harus setelahnya.
   // Elemen ke-3 = label tampilan (dipakai dropdown field di halaman config).
   var PIPELINE = {
@@ -124,16 +163,22 @@ var ComputedFields = (function () {
       ['r13h', r13h, 'Kategori huruf A-U dari kode KBLI (hitungan)'],
       ['r26_total', r26Total, 'Total biaya usaha setahun (hitungan)'],
       ['pangsa_biaya_produksi', pangsaBiayaProduksi, 'Pangsa biaya produksi 0-1 (hitungan)'],
-      ['rasio_pendapatan_biaya', rasioPendapatanBiaya, 'Rasio pendapatan/biaya (hitungan)']
+      ['rasio_pendapatan_biaya', rasioPendapatanBiaya, 'Rasio pendapatan/biaya (hitungan)'],
+      ['rasio_ntb', rasioNtb, 'Rasio NTB (pendapatan−biaya)÷pendapatan (hitungan)'],
+      ['batas_rasio_ntb', batasRasioNtb, 'Batas rasio NTB SE2016 per KBLI (hitungan)']
     ]
   };
 
-  /** Kembalikan SALINAN answers dengan computed fields ditambahkan/ditimpa. */
-  function augment(jenis, answers) {
+  /**
+   * Kembalikan SALINAN answers dengan computed fields ditambahkan/ditimpa.
+   * @param refs tabel referensi eksternal opsional untuk field lookup,
+   *        saat ini: { ntbRasio: {kode→rasio} } (lihat buildNtbRasioMap).
+   */
+  function augment(jenis, answers, refs) {
     var out = {};
     Object.keys(answers || {}).forEach(function (k) { out[k] = answers[k]; });
     (PIPELINE[jenis] || []).forEach(function (step) {
-      out[step[0]] = step[1](out);
+      out[step[0]] = step[1](out, refs);
     });
     return out;
   }
@@ -145,7 +190,7 @@ var ComputedFields = (function () {
     });
   }
 
-  return { augment: augment, listFields: listFields };
+  return { augment: augment, listFields: listFields, buildNtbRasioMap: buildNtbRasioMap };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

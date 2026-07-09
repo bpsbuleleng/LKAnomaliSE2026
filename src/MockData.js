@@ -237,10 +237,11 @@ var MockData = {
     { question_id: 'b4r14b_n', jenis: 'keluarga', order: 40, label: 'Daya per meteran listrik', type: 'select', options: [{ value: 1, label: '450 VA' }, { value: 2, label: '900 VA' }, { value: 3, label: '1300 VA' }, { value: 4, label: 'Lebih dari 1300 VA' }], required: false, help: 'Isi jika sumber penerangan PLN dengan meteran', active: true, roster_group: 'meteran_listrik' }
   ],
 
-  // 14 rule final hasil terjemahan `Identifikasi` → `when` (lihat CLAUDE.md
-  // "Progress terjemahan"). U8 EXCLUDED dari v1 (butuh agregasi lintas-record
-  // + data SBR eksternal). `when` di mock = OBJEK; kolom sheet Fase 5 berisi
-  // string JSON — evaluator menerima keduanya.
+  // 15 rule aktif: 14 hasil terjemahan `Identifikasi` → `when` (lihat CLAUDE.md
+  // "Progress terjemahan") + U9 (rasio NTB, ditambahkan 2026-07-09). U8
+  // EXCLUDED dari v1 (butuh agregasi lintas-record + data SBR eksternal).
+  // `when` di mock = OBJEK; kolom sheet Fase 5 berisi string JSON — evaluator
+  // menerima keduanya.
   RULES: [
     // ---- USAHA ----
     { rule_id: 'U1', jenis: 'usaha', severity: 'warning', message: 'Biaya Produksi Dominan: usaha perdagangan tetapi biaya produksi lebih dari 50% total biaya', active: true,
@@ -261,6 +262,12 @@ var MockData = {
       when: { all: [{ field: 'r16a', op: '==', value: 2 }, { field: 'r25', op: '<', value: 2026 }, { field: 'r27c', op: '>=', value: 15000000000 }] } },
     { rule_id: 'U7', jenis: 'usaha', severity: 'warning', message: 'Laporan Keuangan Usaha Menengah-Besar: usaha besar tidak menyusun laporan keuangan', active: true,
       when: { all: [{ field: 'r11d', op: '==', value: 2 }, { field: 'r25', op: '<', value: 2026 }, { field: 'r27c', op: '>=', value: 15000000000 }] } },
+    // rasio_ntb = (r27c − r26_total) ÷ r27c; batas_rasio_ntb = lookup kode
+    // KBLI r13g di tab "Rasio NTB SE2016" (keduanya computed saat submit,
+    // lihat ComputedFields). Kode tanpa baris di tab itu → batas null → rule
+    // tidak berlaku (evaluator: nilai kosong = false).
+    { rule_id: 'U9', jenis: 'usaha', severity: 'warning', message: 'Rasio NTB Tinggi: (pendapatan − total biaya) ÷ pendapatan melebihi batas rasio NTB SE2016 untuk KBLI usaha ini', active: true,
+      when: { field: 'rasio_ntb', op: '>', field2: 'batas_rasio_ntb' } },
     // ---- KELUARGA ----
     { rule_id: 'K1', jenis: 'keluarga', severity: 'error', message: 'Status Cerai/Belum Kawin: kepala keluarga/pasangan berstatus bukan kawin', active: true,
       when: { roster_any: 'anggota_keluarga', condition: { all: [{ field: 'b1r8_n', op: 'in', value: [1, 2] }, { field: 'b1r11_n', op: 'in', value: [1, 3, 4] }] } } },
