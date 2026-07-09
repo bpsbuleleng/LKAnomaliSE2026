@@ -241,11 +241,21 @@
       el(id).addEventListener('change', renderRecordList);
     });
 
+    // "09/07 14:32" — tanggal kompak waktu lokal untuk baris chip kartu.
+    function fmtUpdated(iso) {
+      var d = new Date(iso);
+      if (isNaN(d)) return '';
+      function p(n) { return (n < 10 ? '0' : '') + n; }
+      return p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
+    var CARD_CHIP = 'text-[11px] font-semibold px-1.5 py-0.5 rounded-full ';
+
     function dashCard(item) {
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.setAttribute('data-testid', 'record-card');
-      btn.className = 'w-full text-left bg-white rounded-xl shadow p-4 active:bg-orange-50';
+      btn.className = 'w-full text-left bg-white rounded-xl shadow-sm p-3 active:bg-orange-50';
       var wilayah = item.idsubsls
         ? (item.nmdesa ? item.nmdesa + ' · ' + item.nmsls + ' · Sub-SLS ' + item.kdsubsls
                        : 'Sub-SLS ' + item.idsubsls)
@@ -253,25 +263,36 @@
       var jenisCls = item.jenis === 'usaha' ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700';
       var statusCls = item.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
       var badges =
-        '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + jenisCls + '">' + item.jenis + '</span>' +
-        '<span class="text-xs font-semibold px-2 py-1 rounded-full ' + statusCls + '">' + item.status + '</span>';
+        '<span class="' + CARD_CHIP + jenisCls + '">' + item.jenis + '</span>' +
+        '<span class="' + CARD_CHIP + statusCls + '">' + item.status + '</span>';
+      // Flag anomali — hanya untuk record submitted (rule baru jalan saat
+      // submit; draft belum diperiksa jadi tidak diberi flag apa pun).
+      if (item.status === 'submitted') {
+        var an = item.anomalies || [];
+        var hasError = an.some(function (a) { return a.severity === 'error'; });
+        badges += an.length
+          ? '<span data-testid="anomaly-flag" class="' + CARD_CHIP +
+              (hasError ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800') +
+              '">&#9888; ' + an.length + ' anomali</span>'
+          : '<span data-testid="anomaly-flag" class="' + CARD_CHIP + 'bg-emerald-50 text-emerald-600">&#10003; 0 anomali</span>';
+      }
       if (item.unsynced) {
-        badges += '<span data-testid="unsynced-badge" class="text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">belum sync</span>';
+        badges += '<span data-testid="unsynced-badge" class="' + CARD_CHIP + 'bg-amber-100 text-amber-800 border border-amber-300">belum sync</span>';
       }
       // Cuma muncul untuk akun organik (satu-satunya yang melihat record
       // PML lain) — bandingkan pml_email (otoritatif), BUKAN nmpml (nama
       // PML yang di-assign ke Sub-SLS-nya, bisa beda dari pembuat record).
       if (item.pml_email && item.pml_email !== App.state.pml.email) {
-        badges += '<span data-testid="owner-badge" class="text-xs font-semibold px-2 py-1 rounded-full bg-slate-200 text-slate-700">' +
+        badges += '<span data-testid="owner-badge" class="' + CARD_CHIP + 'bg-slate-200 text-slate-700">' +
           (item.nmpml || item.pml_email) + '</span>';
       }
       // Judul: keluarga = nama anggota 1 / anggota 2, usaha = nama usaha.
       // Belum ada nama → baris judul memakai wilayah (seperti sebelumnya).
       btn.innerHTML =
-        '<div class="flex flex-wrap gap-2 mb-1">' + badges + '</div>' +
-        '<p data-testid="record-card-title" class="text-sm font-semibold"></p>' +
-        '<p data-testid="record-card-wilayah" class="text-xs text-slate-500 mt-0.5"></p>' +
-        '<p class="text-xs text-slate-400 mt-1">Diubah: ' + String(item.updated || '').replace('T', ' ').slice(0, 16) + '</p>';
+        '<div class="flex flex-wrap items-center gap-1 mb-1">' + badges +
+          '<span class="ml-auto pl-1 text-[11px] text-slate-400 shrink-0">' + fmtUpdated(item.updated) + '</span></div>' +
+        '<p data-testid="record-card-title" class="text-sm font-semibold leading-snug truncate"></p>' +
+        '<p data-testid="record-card-wilayah" class="text-xs text-slate-500 truncate mt-0.5"></p>';
       var titleEl = btn.querySelector('[data-testid="record-card-title"]');
       var wilEl = btn.querySelector('[data-testid="record-card-wilayah"]');
       if (item.judul) {
@@ -469,6 +490,9 @@
       el('readonly-banner').classList.toggle('hidden', !readOnly);
       if (readOnly) el('readonly-owner').textContent = draft.pml_email || '';
       el('record-content').classList.toggle('record-readonly', readOnly);
+      // inert melengkapi CSS pointer-events: ikut memblokir fokus keyboard,
+      // supaya draft read-only tidak pernah jadi dirty & tersimpan ke IndexedDB.
+      el('record-content').inert = readOnly;
       el('record-save').classList.toggle('hidden', readOnly);
       el('record-submit').classList.toggle('hidden', readOnly);
       showRecordError('');
@@ -600,7 +624,9 @@
     el('toc-close').addEventListener('click', closeToc);
     el('toc-backdrop').addEventListener('click', closeToc);
 
-    var INPUT_CLS = 'w-full h-12 px-3 text-base rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-orange-500';
+    // h-11 = 44px (batas bawah touch target); text-base DIPERTAHANKAN di input
+    // teks/angka — font <16px memicu auto-zoom iOS saat fokus.
+    var INPUT_CLS = 'w-full h-11 px-3 text-base rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-orange-500';
 
     /**
      * Grup radio untuk pertanyaan kategorik. Container ber-testid
@@ -613,7 +639,7 @@
       var name = 'rq-' + q.question_id + (testidSuffix || '');
       (q.options || []).forEach(function (o) {
         var lbl = document.createElement('label');
-        lbl.className = 'flex items-center gap-3 min-h-[44px] px-3 py-2.5 rounded-xl border border-slate-300 bg-white cursor-pointer transition-colors has-[:checked]:border-orange-500 has-[:checked]:bg-orange-50 active:bg-orange-50';
+        lbl.className = 'flex items-center gap-2.5 min-h-[44px] px-3 py-2 rounded-xl border border-slate-300 bg-white cursor-pointer transition-colors has-[:checked]:border-orange-500 has-[:checked]:bg-orange-50 active:bg-orange-50';
         var r = document.createElement('input');
         r.type = 'radio';
         r.name = name;
@@ -625,7 +651,7 @@
         }
         r.addEventListener('change', function () { if (r.checked) onChange(o.value); });
         var t = document.createElement('span');
-        t.className = 'text-base leading-snug';
+        t.className = 'text-sm leading-snug';
         t.textContent = o.value + '. ' + o.label;
         lbl.appendChild(r);
         lbl.appendChild(t);
@@ -641,7 +667,7 @@
       // terisi) sudah punya spacing dari card roster, jadi tidak perlu ini —
       // dan tidak dapat anchor TOC (cuma section roster yang dirujuk).
       if (!testidSuffix) {
-        wrap.className = 'py-3 first:pt-0 last:pb-0';
+        wrap.className = 'py-2.5 first:pt-0 last:pb-0';
         wrap.id = 'qanchor-' + q.question_id;
       }
       var lbl = document.createElement('label');
@@ -666,7 +692,7 @@
       } else if (q.type === 'textarea') {
         input = document.createElement('textarea');
         input.rows = 3;
-        input.className = INPUT_CLS.replace('h-12', 'py-3');
+        input.className = INPUT_CLS.replace('h-11', 'py-3');
         input.value = value != null ? value : '';
         input.addEventListener('input', function () { onChange(input.value); });
       } else if (q.type === 'number') {
@@ -762,7 +788,7 @@
       var addBtn = document.createElement('button');
       addBtn.type = 'button';
       addBtn.setAttribute('data-testid', 'roster-add-' + group);
-      addBtn.className = 'w-full h-12 rounded-xl border border-dashed border-orange-400 text-orange-700 font-medium active:bg-orange-50';
+      addBtn.className = 'w-full h-11 rounded-xl border border-dashed border-orange-400 text-orange-700 text-sm font-medium active:bg-orange-50';
       addBtn.textContent = '+ Tambah ' + rosterTitle(group);
       addBtn.addEventListener('click', function () {
         DraftLogic.addRosterRow(Q.draft, group, nowIso());
@@ -797,7 +823,7 @@
       rows.forEach(function (rowData, i) {
         var card = document.createElement('div');
         card.setAttribute('data-testid', 'roster-row-' + group + '-' + i);
-        card.className = 'bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3';
+        card.className = 'bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3';
 
         var head = document.createElement('div');
         head.className = 'flex items-center justify-between';
@@ -979,7 +1005,9 @@
     el('record-back').addEventListener('click', function () {
       var d = Q.draft;
       clearTimeout(Q.debounceTimer);
-      if (!d || !DraftLogic.isDirty(d)) { enterDashboard(); return; }
+      // Mode lihat saja: tidak ada yang perlu disimpan — langsung kembali,
+      // jangan sampai draft milik PML lain masuk IndexedDB lewat dialog keluar.
+      if (!d || d.owned === false || !DraftLogic.isDirty(d)) { enterDashboard(); return; }
       // Pastikan versi terakhir tersimpan lokal sebelum user memutuskan.
       DraftStore.put(d);
       UiFx.openDialog(el('exit-dialog'));
@@ -987,6 +1015,15 @@
 
     el('exit-cancel').addEventListener('click', function () {
       UiFx.closeDialog(el('exit-dialog'));
+    });
+
+    // Mode lihat saja: sentuhan di area kuesioner yang inert jatuh ke wrapper
+    // layout (bukan ke input) — beri umpan balik kenapa isian "tidak bereaksi",
+    // supaya tidak dikira aplikasi hang. TOC tetap interaktif, jangan disela.
+    el('record-layout').addEventListener('click', function (ev) {
+      if (!(Q.draft && Q.draft.owned === false)) return;
+      if (ev.target.closest && ev.target.closest('#toc-panel')) return;
+      UiFx.toast('Mode lihat saja — record milik PML lain, isian tidak bisa diubah.');
     });
 
     el('exit-save').addEventListener('click', function () {

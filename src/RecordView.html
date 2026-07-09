@@ -1,4 +1,4 @@
-<section id="view-record" data-testid="record-view" class="view hidden max-w-md lg:max-w-5xl mx-auto px-4 py-6">
+<section id="view-record" data-testid="record-view" class="view hidden max-w-md lg:max-w-5xl mx-auto px-3 py-4 sm:px-4 sm:py-6">
   <div class="flex items-center justify-between mb-3 gap-2">
     <div class="flex items-center gap-1">
       <button id="record-back" data-testid="record-back" type="button"
@@ -15,7 +15,9 @@
   <!-- Backdrop drawer TOC (mobile only — sidebar persisten di lg:) -->
   <div id="toc-backdrop" data-testid="toc-backdrop" class="hidden fixed inset-0 z-40 bg-black/40 lg:hidden"></div>
 
-  <div class="lg:flex lg:gap-6 lg:items-start">
+  <!-- id dipakai listener toast mode lihat saja: klik/sentuh di area kuesioner
+       yang inert "jatuh" ke wrapper ini (pointer-events:none di record-content) -->
+  <div id="record-layout" class="lg:flex lg:gap-6 lg:items-start">
     <!-- Sidebar TOC: drawer slide-in di mobile, kolom persisten di desktop.
          Scroll ke pertanyaan/roster mana pun via anchor id 'qanchor-*'. -->
     <aside id="toc-panel" data-testid="toc-panel"
@@ -32,9 +34,9 @@
       <nav id="toc-list" class="space-y-0.5 text-sm"></nav>
     </aside>
 
-    <div id="record-content" class="flex-1 min-w-0 bg-white rounded-2xl shadow p-5 space-y-5">
+    <div id="record-content" class="flex-1 min-w-0 bg-white rounded-2xl shadow p-4 sm:p-5 space-y-4">
     <div class="flex items-center gap-2">
-      <h1 id="record-title" class="text-xl font-bold">Record Baru</h1>
+      <h1 id="record-title" class="text-lg font-bold">Record Baru</h1>
       <span id="record-jenis-chip" data-testid="record-jenis-chip"
         class="text-xs font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-600"></span>
       <span id="record-status-chip" data-testid="record-status-chip"
@@ -43,10 +45,13 @@
 
     <!-- Tampil kalau record ini bukan milik akun yang sedang login (akses
          "melihat" akun organik) — kuesioner di bawah dibuat inert lewat
-         class .record-readonly, bukan lewat menonaktifkan tiap input. -->
+         class .record-readonly + atribut inert, bukan menonaktifkan tiap
+         input. Sengaja mencolok (amber) supaya tidak dikira aplikasi hang. -->
     <div id="readonly-banner" data-testid="readonly-banner"
-      class="hidden rounded-xl bg-slate-100 border border-slate-300 text-slate-600 text-sm p-4">
-      Anda melihat record milik <span id="readonly-owner" class="font-semibold"></span> — mode lihat saja, tidak bisa diubah.
+      class="hidden rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-sm p-4">
+      <p class="font-bold mb-0.5">&#128065; Mode lihat saja</p>
+      Record ini milik <span id="readonly-owner" class="font-semibold"></span>.
+      Isian hanya bisa dilihat, tidak bisa diubah dari akun ini.
     </div>
 
     <!-- Hasil pemeriksaan terakhir (record submitted) — laporan, BUKAN pemblokir -->
@@ -69,12 +74,12 @@
         <div>
           <label class="block text-sm font-medium mb-1">Provinsi</label>
           <input value="[51] Bali" readonly data-testid="prov"
-            class="w-full h-12 px-3 text-base rounded-xl border border-slate-200 bg-slate-100 text-slate-500">
+            class="w-full h-11 px-3 text-base rounded-xl border border-slate-200 bg-slate-100 text-slate-500">
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">Kabupaten</label>
           <input value="[08] Buleleng" readonly data-testid="kab"
-            class="w-full h-12 px-3 text-base rounded-xl border border-slate-200 bg-slate-100 text-slate-500">
+            class="w-full h-11 px-3 text-base rounded-xl border border-slate-200 bg-slate-100 text-slate-500">
         </div>
       </div>
       <div>
@@ -109,9 +114,9 @@
 
     <p class="text-sm font-semibold text-slate-600">Kuesioner</p>
     <!-- Roster anggota keluarga tampil PALING AWAL (roster lain tetap di bawah) -->
-    <div id="roster-container-top" class="space-y-5"></div>
+    <div id="roster-container-top" class="space-y-4"></div>
     <div id="questions-container" class="divide-y divide-slate-100"></div>
-    <div id="roster-container" class="space-y-5"></div>
+    <div id="roster-container" class="space-y-4"></div>
 
     <!-- Validasi isian (blocking): daftar field wajib yang belum terisi -->
     <div id="missing-summary" data-testid="missing-summary"
