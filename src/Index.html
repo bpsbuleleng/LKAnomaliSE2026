@@ -258,6 +258,13 @@
       if (item.unsynced) {
         badges += '<span data-testid="unsynced-badge" class="text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">belum sync</span>';
       }
+      // Cuma muncul untuk akun organik (satu-satunya yang melihat record
+      // PML lain) — bandingkan pml_email (otoritatif), BUKAN nmpml (nama
+      // PML yang di-assign ke Sub-SLS-nya, bisa beda dari pembuat record).
+      if (item.pml_email && item.pml_email !== App.state.pml.email) {
+        badges += '<span data-testid="owner-badge" class="text-xs font-semibold px-2 py-1 rounded-full bg-slate-200 text-slate-700">' +
+          (item.nmpml || item.pml_email) + '</span>';
+      }
       // Judul: keluarga = nama anggota 1 / anggota 2, usaha = nama usaha.
       // Belum ada nama → baris judul memakai wilayah (seperti sebelumnya).
       btn.innerHTML =
@@ -313,7 +320,11 @@
         .then(function (res) {
           hideLoading();
           if (res && res.ok) {
-            openQuestionnaire(DraftLogic.fromServerRecord(res.record), res.record.wilayah);
+            var draft = DraftLogic.fromServerRecord(res.record);
+            // owned=false HANYA muncul untuk akun organik membuka record PML
+            // lain (lihat RecordLogic.getRecordFor) — buka read-only.
+            draft.owned = res.owned !== false;
+            openQuestionnaire(draft, res.record.wilayah);
           } else if (fallbackLocalId) {
             // Record server hilang/tak terbaca tapi ada salinan lokal —
             // buka salinan lokal; sync berikutnya membuatnya lagi di server.
@@ -448,8 +459,18 @@
       Q.draft = draft;
       Q.prefilling = true;
       stopSyncTimers();
-      el('record-title').textContent = draft.record_id ? 'Edit Record' : 'Record Baru';
+      // owned=false HANYA terjadi kalau akun organik membuka record PML lain
+      // (lihat openExistingRecord) — seluruh view jadi "lihat saja", TIDAK
+      // ada jalur simpan/submit/hapus dari sini (server tetap menegakkan
+      // kepemilikan di applySaveDraft/submitRecord/deleteRecord terlepas UI).
+      var readOnly = draft.owned === false;
+      el('record-title').textContent = readOnly ? 'Lihat Record' : (draft.record_id ? 'Edit Record' : 'Record Baru');
       el('record-jenis-chip').textContent = draft.jenis;
+      el('readonly-banner').classList.toggle('hidden', !readOnly);
+      if (readOnly) el('readonly-owner').textContent = draft.pml_email || '';
+      el('record-content').classList.toggle('record-readonly', readOnly);
+      el('record-save').classList.toggle('hidden', readOnly);
+      el('record-submit').classList.toggle('hidden', readOnly);
       showRecordError('');
       renderStatusChip();
       renderInlineAnomalies();
@@ -466,7 +487,7 @@
         UiFx.skeletonList(4, 'h-12') + '<div class="skel h-24 rounded-xl" aria-hidden="true"></div>';
       el('roster-container-top').innerHTML = '';
       el('roster-container').innerHTML = '';
-      el('record-delete').classList.toggle('hidden', !draft.record_id && draft.rev === 0);
+      el('record-delete').classList.toggle('hidden', readOnly || (!draft.record_id && draft.rev === 0));
       refreshSyncIndicator();
       showView('record');
 
@@ -834,6 +855,11 @@
 
     // Dipanggil di TIAP edit: tulis lokal SEGERA (debounced), lalu coba server.
     function afterEdit() {
+      // Defense-in-depth: record PML lain (dibuka organik) seharusnya sudah
+      // inert lewat .record-readonly (lihat openQuestionnaire) — guard ini
+      // cuma jaga-jaga kalau ada jalur edit yang lolos (mis. fokus keyboard).
+      // Penegakan SUNGGUHAN tetap di server (RecordLogic.applySaveDraft dst).
+      if (Q.draft && Q.draft.owned === false) return;
       refreshSyncIndicator();
       // Begitu ada isian, record sudah "ada" (minimal lokal) → bisa dihapus.
       el('record-delete').classList.remove('hidden');

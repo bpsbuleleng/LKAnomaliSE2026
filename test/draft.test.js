@@ -88,7 +88,7 @@ test('fromServerRecord: dianggap sinkron & roster dijamin ada', () => {
 
 test('mergeDashboard: server bersih + lokal dirty + lokal-belum-pernah-sync', () => {
   const server = [
-    { record_id: 'R-1', jenis: 'usaha', status: 'draft', idsubsls: '', nmdesa: '', nmsls: '', kdsubsls: '', updated_at: T1 },
+    { record_id: 'R-1', jenis: 'usaha', status: 'draft', idsubsls: '', nmdesa: '', nmsls: '', kdsubsls: '', pml_email: 'kadek@x.com', nmpml: 'KADEK', updated_at: T1 },
     { record_id: 'R-2', jenis: 'keluarga', status: 'draft', idsubsls: '', nmdesa: '', nmsls: '', kdsubsls: '', updated_at: T1 }
   ];
   const dirtyLocal = DraftLogic.newDraft('L-9', 'a@b.com', 'keluarga', T1);
@@ -104,10 +104,13 @@ test('mergeDashboard: server bersih + lokal dirty + lokal-belum-pernah-sync', ()
   const r2 = items.find((i) => i.record_id === 'R-2');
   const l7 = items.find((i) => i.localId === 'L-7');
   assert.equal(r1.unsynced, false);
+  assert.equal(r1.pml_email, 'kadek@x.com'); // diteruskan dari record server (dipakai badge organik)
+  assert.equal(r1.nmpml, 'KADEK');
   assert.equal(r2.unsynced, true);
   assert.equal(r2.localId, 'L-9');
   assert.equal(l7.unsynced, true);
   assert.equal(l7.record_id, null);
+  assert.equal(l7.pml_email, 'a@b.com'); // draft lokal murni: milik sesi yang sedang login
 });
 
 test('judulRecord (client) & mergeDashboard.judul: dirty pakai jawaban lokal, bersih pakai judul server', () => {

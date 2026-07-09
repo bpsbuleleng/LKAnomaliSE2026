@@ -135,7 +135,8 @@ var DraftLogic = (function () {
         judul: dirty ? judulRecord(d.jenis, d.answers) : (r.judul || ''),
         updated: dirty ? d.updatedLocal : r.updated_at,
         idsubsls: r.idsubsls, nmkec: r.nmkec || '', nmdesa: r.nmdesa, nmsls: r.nmsls, kdsubsls: r.kdsubsls,
-        nmppl: r.nmppl || '', anomalies: r.anomalies || []
+        nmppl: r.nmppl || '', pml_email: r.pml_email || '', nmpml: r.nmpml || '',
+        anomalies: r.anomalies || []
       };
     });
     (localDrafts || []).forEach(function (d) {
@@ -147,7 +148,8 @@ var DraftLogic = (function () {
         judul: judulRecord(d.jenis, d.answers),
         updated: d.updatedLocal, idsubsls: d.idsubsls,
         nmkec: '', nmdesa: '', nmsls: '', kdsubsls: '',
-        nmppl: '', anomalies: d.anomalies || []
+        // Draft lokal murni selalu milik sesi yang sedang login.
+        nmppl: '', pml_email: d.pml_email || '', nmpml: '', anomalies: d.anomalies || []
       });
     });
     items.sort(function (a, b) {

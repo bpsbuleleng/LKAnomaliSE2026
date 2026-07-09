@@ -9,6 +9,14 @@ var RecordLogic = (function () {
   }
   function s(v) { return String(v == null ? '' : v); }
 
+  // Akun "organik" (lihat AuthLogic.ORGANIK_EMAIL / WilayahLogic.ORGANIK_EMAIL)
+  // TIDAK terikat wilayah DAN bisa melihat record/assignment SEMUA PML —
+  // dipakai BPS pusat/kabupaten sebagai akses pengawas. Hanya visibilitas:
+  // applySaveDraft/applyDeleteRecord di bawah TETAP mengecek kepemilikan apa
+  // adanya, jadi organik bisa MELIHAT tapi tidak bisa mengedit/hapus record
+  // PML lain.
+  var ORGANIK_EMAIL = 'organik@bps.go.id';
+
   // Snapshot wilayah disalin dari baris alokasi saat simpan (bukan live-join),
   // supaya riwayat record tidak berubah kalau Alokasi Wilayah diperbarui.
   function buildWilayahSnapshot(row) {
@@ -56,6 +64,12 @@ var RecordLogic = (function () {
       judul: judulRecord(rec.jenis, rec.answers),
       idsubsls: s(w.idsubsls), nmkec: s(w.nmkec), nmdesa: s(w.nmdesa),
       nmsls: s(w.nmsls), kdsubsls: s(w.kdsubsls), nmppl: s(w.nmppl),
+      // Identitas pembuat record — dipakai dashboard organik untuk menandai
+      // record "milik siapa" (lihat listRecordsFor). pml_email otoritatif;
+      // nmpml cuma label tampilan (nama PML yang di-assign ke Sub-SLS ini di
+      // Alokasi Wilayah, BISA beda dari pml_email kalau organik sendiri yang
+      // membuat record di wilayah orang lain).
+      pml_email: normEmail(rec.pml_email), nmpml: s(w.nmpml),
       // Dipakai filter dashboard (jenis anomali / "tidak ada anomali") —
       // bentuk minimal, message dipakai sebagai label filter.
       anomalies: (rec.anomalies || []).map(function (a) {
@@ -67,8 +81,10 @@ var RecordLogic = (function () {
 
   function listRecordsFor(records, pmlEmail) {
     var norm = normEmail(pmlEmail);
-    return records
-      .filter(function (r) { return normEmail(r.pml_email) === norm; })
+    var scoped = norm === ORGANIK_EMAIL
+      ? records // akses pengawas: semua record, bukan cuma milik sendiri
+      : records.filter(function (r) { return normEmail(r.pml_email) === norm; });
+    return scoped
       .map(summarize)
       .sort(function (a, b) { // terbaru dulu
         return a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0;
@@ -82,8 +98,9 @@ var RecordLogic = (function () {
       if (records[i].record_id === recordId) { rec = records[i]; break; }
     }
     if (!rec) return { ok: false, error: 'NOT_FOUND' };
-    if (normEmail(rec.pml_email) !== norm) return { ok: false, error: 'FORBIDDEN' };
-    return { ok: true, record: rec };
+    var owned = normEmail(rec.pml_email) === norm;
+    if (!owned && norm !== ORGANIK_EMAIL) return { ok: false, error: 'FORBIDDEN' };
+    return { ok: true, record: rec, owned: owned };
   }
 
   /**
@@ -172,7 +189,8 @@ var RecordLogic = (function () {
     listRecordsFor: listRecordsFor,
     getRecordFor: getRecordFor,
     applySaveDraft: applySaveDraft,
-    applyDeleteRecord: applyDeleteRecord
+    applyDeleteRecord: applyDeleteRecord,
+    ORGANIK_EMAIL: ORGANIK_EMAIL
   };
 })();
 

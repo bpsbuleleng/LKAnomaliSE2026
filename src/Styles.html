@@ -112,6 +112,10 @@ input, select, textarea { transition: border-color .15s ease, box-shadow .15s ea
 /* Daftar yang sedang menunggu hasil mutasi server (halaman admin) */
 .busy-dim { opacity: .55; pointer-events: none; transition: opacity .2s ease; }
 
+/* Record milik akun lain (akses "melihat" akun organik) — seluruh kuesioner
+   dibuat inert lewat satu class di sini, bukan menonaktifkan tiap input. */
+.record-readonly { opacity: .7; pointer-events: none; }
+
 /* ---- Reorder (drag & drop) pertanyaan di halaman admin ----
    Handle = titik pegang; touch-action:none supaya sentuh di handle memulai
    drag (bukan menggulung halaman). Baris tetap boleh digulung (pan-y). */

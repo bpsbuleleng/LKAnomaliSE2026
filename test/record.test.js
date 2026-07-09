@@ -7,6 +7,7 @@ const MockData = require('../src/MockData.js');
 
 const KADEK = 'kadekbudiana74@gmail.com';
 const KETUT = 'akusury336@gmail.com';
+const ORGANIK = 'organik@bps.go.id';
 const assignedKadek = WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, KADEK);
 
 const T1 = '2026-07-07T01:00:00.000Z';
@@ -92,8 +93,23 @@ test('listRecordsFor: hanya milik sendiri, urut terbaru dulu, bentuk summary', (
     record_id: 'R-2', jenis: 'keluarga', status: 'draft', judul: '',
     idsubsls: '5108010002000101', nmkec: 'Gerokgak', nmdesa: 'Sumberkima',
     nmsls: 'Banjar Dinas Kertha Kusuma', kdsubsls: '01', nmppl: 'NI MADE RUSPINI',
+    pml_email: KADEK, nmpml: 'KADEK BUDIANA',
     anomalies: [], updated_at: T2
   });
+  assert.equal(RecordLogic.listRecordsFor(records, KETUT).length, 1);
+});
+
+test('listRecordsFor: akun organik lihat SEMUA record lintas PML (akses pengawas)', () => {
+  let records = createDraft([], KADEK, { jenis: 'usaha' }, assignedKadek, T1, 'R-1').records;
+  const assignedKetut = WilayahLogic.filterByPml(MockData.ALOKASI_WILAYAH, KETUT);
+  records = createDraft(records, KETUT, { jenis: 'usaha' }, assignedKetut, T2, 'R-2').records;
+
+  const list = RecordLogic.listRecordsFor(records, ORGANIK);
+  assert.equal(list.length, 2);
+  assert.deepEqual(list.map((r) => r.pml_email).sort(), [KADEK, KETUT].sort());
+
+  // PML biasa TETAP hanya lihat miliknya sendiri — organik tidak "bocor" ke yang lain.
+  assert.equal(RecordLogic.listRecordsFor(records, KADEK).length, 1);
   assert.equal(RecordLogic.listRecordsFor(records, KETUT).length, 1);
 });
 
@@ -124,7 +140,20 @@ test('applyDeleteRecord: milik sendiri terhapus; milik orang FORBIDDEN; tak ada 
 
 test('getRecordFor: milik sendiri ok, milik orang FORBIDDEN, tak ada NOT_FOUND', () => {
   const records = createDraft([], KADEK, { jenis: 'usaha' }, assignedKadek, T1, 'R-1').records;
-  assert.equal(RecordLogic.getRecordFor(records, KADEK, 'R-1').ok, true);
+  const own = RecordLogic.getRecordFor(records, KADEK, 'R-1');
+  assert.equal(own.ok, true);
+  assert.equal(own.owned, true);
   assert.equal(RecordLogic.getRecordFor(records, KETUT, 'R-1').error, 'FORBIDDEN');
   assert.equal(RecordLogic.getRecordFor(records, KADEK, 'R-9').error, 'NOT_FOUND');
+});
+
+test('getRecordFor: organik bisa buka record PML lain (owned:false); PML biasa tetap FORBIDDEN', () => {
+  const records = createDraft([], KADEK, { jenis: 'usaha' }, assignedKadek, T1, 'R-1').records;
+  const asOrganik = RecordLogic.getRecordFor(records, ORGANIK, 'R-1');
+  assert.equal(asOrganik.ok, true);
+  assert.equal(asOrganik.owned, false);
+  assert.equal(asOrganik.record.record_id, 'R-1');
+  // Regresi: organik tidak "membocorkan" akses ke PML biasa lainnya.
+  assert.equal(RecordLogic.getRecordFor(records, KETUT, 'R-1').error, 'FORBIDDEN');
+  assert.equal(RecordLogic.getRecordFor(records, ORGANIK, 'R-9').error, 'NOT_FOUND');
 });

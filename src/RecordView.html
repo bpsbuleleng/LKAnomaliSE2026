@@ -32,13 +32,21 @@
       <nav id="toc-list" class="space-y-0.5 text-sm"></nav>
     </aside>
 
-    <div class="flex-1 min-w-0 bg-white rounded-2xl shadow p-5 space-y-5">
+    <div id="record-content" class="flex-1 min-w-0 bg-white rounded-2xl shadow p-5 space-y-5">
     <div class="flex items-center gap-2">
       <h1 id="record-title" class="text-xl font-bold">Record Baru</h1>
       <span id="record-jenis-chip" data-testid="record-jenis-chip"
         class="text-xs font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-600"></span>
       <span id="record-status-chip" data-testid="record-status-chip"
         class="text-xs font-semibold px-2 py-1 rounded-full"></span>
+    </div>
+
+    <!-- Tampil kalau record ini bukan milik akun yang sedang login (akses
+         "melihat" akun organik) — kuesioner di bawah dibuat inert lewat
+         class .record-readonly, bukan lewat menonaktifkan tiap input. -->
+    <div id="readonly-banner" data-testid="readonly-banner"
+      class="hidden rounded-xl bg-slate-100 border border-slate-300 text-slate-600 text-sm p-4">
+      Anda melihat record milik <span id="readonly-owner" class="font-semibold"></span> — mode lihat saja, tidak bisa diubah.
     </div>
 
     <!-- Hasil pemeriksaan terakhir (record submitted) — laporan, BUKAN pemblokir -->
