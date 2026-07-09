@@ -190,6 +190,40 @@ test('jumlah_<roster>: nilai kiriman client ditimpa hasil hitung server', () => 
   assert.equal(out.jumlah_anggota_keluarga, 1);
 });
 
+// ==== customFields: custom computed field buatan admin (CRUD config) ====
+
+test('customFields: dievaluasi setelah pipeline — boleh merujuk jawaban & computed bawaan', () => {
+  const refs = { customFields: [{ id: 'margin_kotor', formula: 'r27c - r26_total' }] };
+  const out = usaha({ r26a: 10, r26b: 20, r27c: 100 }, refs);
+  assert.equal(out.r26_total, 30);
+  assert.equal(out.margin_kotor, 70);
+});
+
+test('customFields: urut array — custom belakangan boleh merujuk custom sebelumnya', () => {
+  const refs = { customFields: [
+    { id: 'a_dulu', formula: 'r26a * 2' },
+    { id: 'b_kemudian', formula: 'a_dulu + 1' }
+  ] };
+  const out = usaha({ r26a: 5 }, refs);
+  assert.equal(out.a_dulu, 10);
+  assert.equal(out.b_kemudian, 11);
+});
+
+test('customFields: formula rusak → null (submit tidak gagal); bagi 0 → null', () => {
+  const refs = { customFields: [
+    { id: 'rusak', formula: 'r26a + + +' },
+    { id: 'bagi_nol', formula: 'r26a / r26b' }
+  ] };
+  const out = usaha({ r26a: 5 }, refs);
+  assert.equal(out.rusak, null);
+  assert.equal(out.bagi_nol, null); // r26b kosong = 0 → tidak berlaku
+});
+
+test('customFields: tanpa refs / array kosong → augment jalan seperti biasa', () => {
+  assert.equal(usaha({ r26a: 5 }).r26_total, 5);
+  assert.equal(usaha({ r26a: 5 }, { customFields: [] }).r26_total, 5);
+});
+
 // ==== Perilaku augment ====
 
 test('augment TIDAK memutasi input dan menimpa computed lama saat dihitung ulang', () => {

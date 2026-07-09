@@ -4,34 +4,115 @@
   <base target="_top">
   <meta charset="utf-8">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Font stack halaman admin: Inter untuk teks, JetBrains Mono untuk kode.
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <?!= include('Styles'); ?>
+  <style>
+    /* ==== Gaya khusus halaman admin (Styles.html tetap generik bersama Index) ==== */
+
+    /* Focus ring konsisten di semua kontrol form */
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #fb923c;               /* orange-400 */
+      box-shadow: 0 0 0 3px rgba(251, 146, 60, .22);
+    }
+
+    /* Indikator tab bagian (garis oranye yang "meluncur" antar tab) */
+    #sec-ink {
+      position: absolute; bottom: 0; left: 0;
+      height: 3px; width: 0;
+      background: #ea580c;                  /* orange-600 */
+      border-radius: 9999px 9999px 0 0;
+      transition: transform .28s cubic-bezier(.2, .8, .3, 1), width .28s cubic-bezier(.2, .8, .3, 1);
+    }
+
+    /* Textarea auto-expand: tinggi mengikuti isi (JS set height=scrollHeight),
+       dibatasi max-height supaya isi super panjang tetap bisa digulung. */
+    textarea.auto-grow {
+      resize: none;
+      overflow-y: hidden;
+      min-height: 3rem;                     /* setinggi input h-12 saat 1 baris */
+      max-height: 40vh;
+    }
+    textarea.auto-grow.at-max { overflow-y: auto; }
+
+    /* Chip formula di kartu Variabel Hitungan */
+    .formula-chip {
+      display: block;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: .75rem;
+      line-height: 1.5;
+      color: #475569;                       /* slate-600 */
+      background: #f8fafc;                  /* slate-50 */
+      border: 1px solid #e2e8f0;            /* slate-200 */
+      border-radius: .5rem;
+      padding: .4rem .6rem;
+      overflow-wrap: anywhere;
+    }
+
+    /* Kartu daftar: naik halus saat disorot mouse (desktop) */
+    .row-card { transition: border-color .15s ease, box-shadow .15s ease; }
+    @media (hover: hover) {
+      .row-card:hover { border-color: #cbd5e1; box-shadow: 0 2px 10px rgba(15, 23, 42, .06); }
+    }
+  </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-800">
+<body class="bg-slate-100 min-h-screen text-slate-800 antialiased">
 
   <?!= include('AdminLoginView'); ?>
 
-  <section id="admin-view-main" data-testid="admin-main" class="view hidden max-w-md lg:max-w-6xl mx-auto px-4 py-6 space-y-5">
-    <div class="flex items-center justify-between">
-      <h1 class="text-xl font-bold">Config SE2026</h1>
-      <button id="admin-logout" data-testid="admin-logout" type="button"
-        class="h-11 px-3 rounded-lg text-orange-700 font-medium active:bg-orange-50">Keluar</button>
+  <section id="admin-view-main" data-testid="admin-main" class="view hidden">
+
+    <!-- Topbar sticky: identitas + jenis + logout (baris 1), tab bagian (baris 2) -->
+    <div class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200">
+      <div class="max-w-3xl mx-auto px-4">
+        <div class="h-14 flex items-center justify-between gap-2">
+          <h1 class="text-base font-bold tracking-tight whitespace-nowrap">Config <span class="text-orange-600">SE2026</span></h1>
+          <div class="flex items-center gap-1">
+            <div class="flex rounded-full bg-slate-100 p-0.5" role="tablist" aria-label="Jenis kuesioner">
+              <button id="jenis-tab-usaha" data-testid="jenis-tab-usaha" type="button"
+                class="h-8 px-2.5 rounded-full text-xs font-semibold">usaha</button>
+              <button id="jenis-tab-keluarga" data-testid="jenis-tab-keluarga" type="button"
+                class="h-8 px-2.5 rounded-full text-xs font-semibold">keluarga</button>
+            </div>
+            <button id="admin-logout" data-testid="admin-logout" type="button"
+              class="h-8 px-2 rounded-full text-xs font-semibold text-slate-500 hover:text-orange-700 hover:bg-orange-50 active:bg-orange-100">Keluar</button>
+          </div>
+        </div>
+        <nav id="sec-tabs" class="relative flex overflow-x-auto" role="tablist" aria-label="Bagian konfigurasi">
+          <button id="sec-tab-questions" data-testid="sec-tab-questions" type="button" role="tab"
+            class="sec-tab h-11 px-2.5 text-sm flex items-center gap-1.5 whitespace-nowrap">Pertanyaan
+            <span id="sec-count-questions" class="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">·</span></button>
+          <button id="sec-tab-rules" data-testid="sec-tab-rules" type="button" role="tab"
+            class="sec-tab h-11 px-2.5 text-sm flex items-center gap-1.5 whitespace-nowrap">Rule
+            <span id="sec-count-rules" class="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">·</span></button>
+          <button id="sec-tab-computed" data-testid="sec-tab-computed" type="button" role="tab"
+            class="sec-tab h-11 px-2.5 text-sm flex items-center gap-1.5 whitespace-nowrap">Variabel Hitungan
+            <span id="sec-count-computed" class="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">·</span></button>
+          <span id="sec-ink" aria-hidden="true"></span>
+        </nav>
+      </div>
     </div>
 
-    <div class="flex rounded-xl bg-slate-200 p-1 lg:max-w-xs" role="tablist">
-      <button id="jenis-tab-usaha" data-testid="jenis-tab-usaha" type="button"
-        class="flex-1 h-11 rounded-lg text-sm font-semibold">usaha</button>
-      <button id="jenis-tab-keluarga" data-testid="jenis-tab-keluarga" type="button"
-        class="flex-1 h-11 rounded-lg text-sm font-semibold">keluarga</button>
-    </div>
-
-    <!-- Berdampingan di layar lebar (lihat Kelola Pertanyaan & Rule sekaligus
-         memudahkan mikir aturan baru); bertumpuk di HP. -->
-    <div class="space-y-5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
-      <?!= include('AdminQuestionsView'); ?>
-      <?!= include('AdminRulesView'); ?>
-    </div>
-
-    <?!= include('AdminComputedView'); ?>
+    <main class="max-w-3xl mx-auto px-4 pt-5 pb-24">
+      <div id="sec-panel-questions"><?!= include('AdminQuestionsView'); ?></div>
+      <div id="sec-panel-rules" class="hidden"><?!= include('AdminRulesView'); ?></div>
+      <div id="sec-panel-computed" class="hidden"><?!= include('AdminComputedView'); ?></div>
+    </main>
   </section>
 
   <?!= include('UiFx'); ?>
@@ -42,14 +123,19 @@
     // localStorage) dan disertakan di TIAP panggilan privileged — server
     // mengecek ulang setiap kali; UI ini sama sekali bukan lapisan proteksi.
     var Adm = {
-      pw: null, jenis: 'usaha',
+      pw: null, jenis: 'usaha', section: 'questions',
       questions: [], rules: [], fields: [], computedFields: [],
       editingQ: null, editingR: null,
+      // Variabel Hitungan: field yang sedang diedit di dialog (null = tambah custom baru).
+      editingCF: null,
       // Mode Ubah Urutan: staging lokal, baru commit ke server saat Simpan.
       reordering: false, reorderIds: [],
       // Rule Mode Sederhana: kombinator + daftar baris kondisi.
-      combinator: 'all', condRows: []
+      combinator: 'all', condRows: [],
+      activeFormulaEl: null
     };
+
+    var SECTIONS = ['questions', 'rules', 'computed'];
 
     // Operator rule (dipakai membangun dropdown per baris kondisi).
     var RULE_OPS = [
@@ -62,9 +148,9 @@
     var ADMIN_ERROR_MESSAGES = {
       FORBIDDEN: 'Password admin salah — akses ditolak server.',
       INVALID_JENIS: 'Jenis tidak valid.',
-      INVALID_ALIAS: 'Alias tidak valid — pakai huruf kecil/angka/underscore.',
-      DUPLICATE_ALIAS: 'Alias sudah dipakai pertanyaan lain di jenis ini.',
-      INVALID_LABEL: 'Label pertanyaan wajib diisi.',
+      INVALID_ALIAS: 'Alias tidak valid — huruf kecil/angka/underscore, diawali huruf.',
+      DUPLICATE_ALIAS: 'Alias sudah dipakai pertanyaan/variabel lain di jenis ini.',
+      INVALID_LABEL: 'Label wajib diisi.',
       INVALID_TYPE: 'Tipe pertanyaan tidak valid.',
       INVALID_OPTIONS: 'Tipe select butuh daftar opsi yang valid.',
       INVALID_ORDER: 'Urutan tidak valid — muat ulang halaman lalu coba lagi.',
@@ -103,6 +189,31 @@
       UiFx.replayAnim(v, 'view-enter');
     }
 
+    // ==== TEXTAREA AUTO-EXPAND ====
+    // Input teks yang isinya sering panjang (label pertanyaan, pesan anomali,
+    // formula) dipakai sebagai <textarea class="auto-grow"> — tingginya
+    // mengikuti isi, dibatasi max-height (lihat CSS).
+
+    function autoGrow(ta) {
+      if (!ta) return;
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+      // Saat mentok max-height, buka scrollbar internal.
+      ta.classList.toggle('at-max', ta.scrollHeight > ta.clientHeight + 2);
+    }
+
+    // Idempoten: aman dipanggil tiap dialog dibuka / value di-set programatik.
+    // WAJIB dipanggil SETELAH elemen terlihat (display:none → scrollHeight 0).
+    function wireAutoGrow(root) {
+      (root || document).querySelectorAll('textarea.auto-grow').forEach(function (ta) {
+        if (!ta.dataset.agWired) {
+          ta.dataset.agWired = '1';
+          ta.addEventListener('input', function () { autoGrow(ta); });
+        }
+        autoGrow(ta);
+      });
+    }
+
     // ==== LOGIN (gerbang UX — keamanan tetap di cek per-panggilan server) ====
 
     el('admin-login-form').addEventListener('submit', function (ev) {
@@ -117,6 +228,7 @@
             Adm.pw = pw;
             el('admin-password').value = '';
             showView('main');
+            setSection(Adm.section);
             setJenis(Adm.jenis);
           } else {
             el('admin-login-error').textContent = 'Password salah.';
@@ -137,23 +249,67 @@
       showView('login');
     });
 
+    // ==== TAB BAGIAN (Pertanyaan / Rule / Variabel Hitungan) ====
+
+    function setSection(sec) {
+      Adm.section = sec;
+      SECTIONS.forEach(function (s) {
+        var active = s === sec;
+        el('sec-panel-' + s).classList.toggle('hidden', !active);
+        var btn = el('sec-tab-' + s);
+        btn.className = 'sec-tab h-11 px-2.5 text-sm flex items-center gap-1.5 whitespace-nowrap font-semibold transition-colors ' +
+          (active ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600');
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+        var count = el('sec-count-' + s);
+        count.className = 'text-[11px] font-bold px-1.5 py-0.5 rounded-full ' +
+          (active ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500');
+      });
+      moveInk();
+      UiFx.replayAnim(el('sec-panel-' + sec), 'view-enter');
+    }
+
+    // Geser garis indikator ke tab aktif — dipanggil juga saat resize/font
+    // selesai dimuat (lebar tab berubah setelah Inter aktif).
+    function moveInk() {
+      var btn = el('sec-tab-' + Adm.section);
+      var nav = el('sec-tabs');
+      var b = btn.getBoundingClientRect();
+      var n = nav.getBoundingClientRect();
+      if (!b.width) return; // view masih hidden — nanti dipanggil ulang
+      el('sec-ink').style.width = b.width + 'px';
+      el('sec-ink').style.transform = 'translateX(' + (b.left - n.left) + 'px)';
+    }
+    window.addEventListener('resize', moveInk);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(moveInk);
+
+    SECTIONS.forEach(function (s) {
+      el('sec-tab-' + s).addEventListener('click', function () { setSection(s); });
+    });
+
+    function updateCounts() {
+      el('sec-count-questions').textContent = Adm.questions.length;
+      el('sec-count-rules').textContent = Adm.rules.length;
+      el('sec-count-computed').textContent = Adm.computedFields.length;
+      moveInk(); // lebar tab bisa berubah saat angka berganti digit
+    }
+
     // ==== TAB JENIS ====
 
     function setJenis(jenis) {
       Adm.jenis = jenis;
       ['usaha', 'keluarga'].forEach(function (j) {
-        el('jenis-tab-' + j).className = 'flex-1 h-11 rounded-lg text-sm font-semibold ' +
-          (j === jenis ? 'bg-white shadow text-orange-700' : 'text-slate-500');
+        el('jenis-tab-' + j).className = 'h-8 px-2.5 rounded-full text-xs font-semibold transition-colors ' +
+          (j === jenis ? 'bg-white shadow-sm text-orange-700' : 'text-slate-500 hover:text-slate-700');
       });
       loadAll();
     }
     el('jenis-tab-usaha').addEventListener('click', function () { setJenis('usaha'); });
     el('jenis-tab-keluarga').addEventListener('click', function () { setJenis('keluarga'); });
 
-    // Redupkan kedua daftar selagi mutasi (toggle/reorder) menunggu server —
+    // Redupkan daftar selagi mutasi (toggle/reorder/hapus) menunggu server —
     // umpan balik instan sebelum loadAll menggambar ulang dengan skeleton.
     function setListsBusy(busy) {
-      ['aq-list', 'ar-list'].forEach(function (id) {
+      ['aq-list', 'ar-list', 'acf-list'].forEach(function (id) {
         el(id).classList.toggle('busy-dim', !!busy);
       });
     }
@@ -162,7 +318,7 @@
       setListsBusy(false);
       el('aq-list').innerHTML = UiFx.skeletonList(3, 'h-28');
       el('ar-list').innerHTML = UiFx.skeletonList(3, 'h-24');
-      el('acf-list').innerHTML = UiFx.skeletonList(3, 'h-16');
+      el('acf-list').innerHTML = UiFx.skeletonList(3, 'h-20');
       return Promise.all([
         gsRun('getQuestions', Adm.jenis, true),   // admin lihat SEMUA termasuk nonaktif
         gsRun('getRules', Adm.jenis, true),
@@ -176,15 +332,20 @@
         renderQuestions();
         renderRules();
         renderComputedFields();
+        updateCounts();
       }).catch(function () {
         el('aq-list').innerHTML = '<p class="text-sm text-red-600">Gagal memuat — periksa koneksi.</p>';
-        el('ar-list').innerHTML = '';
-        el('acf-list').innerHTML = '';
+        el('ar-list').innerHTML = '<p class="text-sm text-red-600">Gagal memuat — periksa koneksi.</p>';
+        el('acf-list').innerHTML = '<p class="text-sm text-red-600">Gagal memuat — periksa koneksi.</p>';
       });
     }
 
     function badge(text, cls) {
       return '<span class="text-[11px] font-semibold px-1.5 py-0.5 rounded ' + cls + '">' + text + '</span>';
+    }
+
+    function emptyState(wrap, text) {
+      wrap.innerHTML = '<p class="text-sm text-slate-400 text-center border border-dashed border-slate-200 rounded-xl py-8">' + text + '</p>';
     }
 
     // ==== KELOLA PERTANYAAN ====
@@ -193,25 +354,22 @@
       if (Adm.reordering) { renderQuestionsReorder(); return; }
       var wrap = el('aq-list');
       wrap.innerHTML = '';
-      if (!Adm.questions.length) {
-        wrap.innerHTML = '<p class="text-sm text-slate-400">Belum ada pertanyaan.</p>';
-        return;
-      }
+      if (!Adm.questions.length) { emptyState(wrap, 'Belum ada pertanyaan.'); return; }
       Adm.questions.forEach(function (q) {
         var row = document.createElement('div');
         row.setAttribute('data-testid', 'aq-row-' + q.question_id);
-        row.className = 'rounded-xl border border-slate-200 p-3 space-y-2' + (q.active ? '' : ' opacity-60 bg-slate-50');
+        row.className = 'row-card rounded-xl border border-slate-200 bg-white p-3 space-y-2' + (q.active ? '' : ' opacity-60 bg-slate-50');
         var badges = badge(q.type, 'bg-slate-100 text-slate-600');
         if (q.required) badges += ' ' + badge('wajib', 'bg-orange-100 text-orange-700');
         if (q.roster_group) badges += ' ' + badge('roster: ' + q.roster_group, 'bg-indigo-100 text-indigo-700');
         if (!q.active) badges += ' ' + badge('NONAKTIF', 'bg-red-100 text-red-700');
         row.innerHTML =
-          '<div class="flex items-start gap-2">' +
+          '<div class="flex items-start gap-2.5">' +
             '<span class="shrink-0 w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-bold flex items-center justify-center">' + q.order + '</span>' +
             '<div class="min-w-0">' +
               '<p class="text-sm font-medium leading-snug"></p>' +
-              '<p class="text-xs text-slate-400 font-mono">' + q.question_id + '</p>' +
-              '<div class="flex flex-wrap gap-1 mt-1">' + badges + '</div>' +
+              '<p class="text-xs text-slate-400 font-mono mt-0.5">' + q.question_id + '</p>' +
+              '<div class="flex flex-wrap gap-1 mt-1.5">' + badges + '</div>' +
             '</div>' +
           '</div>';
         row.querySelector('p').textContent = q.label;
@@ -234,7 +392,7 @@
       b.textContent = text;
       b.disabled = disabled;
       b.setAttribute('data-testid', testid);
-      b.className = 'h-11 px-3 rounded-lg border border-slate-200 text-sm font-medium active:bg-slate-100 disabled:opacity-30 ' + (extraCls || 'text-slate-700');
+      b.className = 'h-11 px-3 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50 active:bg-slate-100 disabled:opacity-30 ' + (extraCls || 'text-slate-700');
       b.addEventListener('click', onClick);
       return b;
     }
@@ -278,6 +436,7 @@
           el('aq-reorder').classList.remove('hidden');
           el('aq-hint').classList.remove('hidden');
           el('aq-reorder-bar').classList.add('hidden');
+          UiFx.toast('Urutan tersimpan.');
           loadAll(); // gambar ulang dengan order final dari server
         })
         .catch(function () {
@@ -339,7 +498,7 @@
       b.textContent = text;
       b.disabled = disabled;
       b.setAttribute('data-testid', testid);
-      b.className = 'w-9 h-9 rounded-lg border border-slate-200 text-sm font-bold active:bg-slate-100 disabled:opacity-30 text-slate-600';
+      b.className = 'w-9 h-9 rounded-lg border border-slate-200 text-sm font-bold hover:bg-slate-50 active:bg-slate-100 disabled:opacity-30 text-slate-600';
       b.addEventListener('click', onClick);
       return b;
     }
@@ -494,6 +653,7 @@
         alert(serverError(res));
         return;
       }
+      UiFx.toast('Perubahan tersimpan.');
       loadAll();
     }
 
@@ -507,7 +667,7 @@
       });
     }
 
-    // -- dialog tambah/edit --
+    // -- dialog tambah/edit pertanyaan --
 
     function openQuestionDialog(q) {
       Adm.editingQ = q ? q.question_id : null;
@@ -522,6 +682,7 @@
       el('aq-error').classList.add('hidden');
       syncOptionsVisibility();
       UiFx.openDialog(el('aq-dialog'));
+      wireAutoGrow(el('aq-dialog'));
     }
 
     function syncOptionsVisibility() {
@@ -561,6 +722,7 @@
         UiFx.btnBusy(el('aq-save'), false);
         if (!(res && res.ok)) { showErr(serverError(res)); return; }
         UiFx.closeDialog(el('aq-dialog'));
+        UiFx.toast('Pertanyaan tersimpan.');
         loadAll();
       }).catch(function () {
         UiFx.btnBusy(el('aq-save'), false);
@@ -568,59 +730,59 @@
       });
     });
 
-    // ==== VARIABEL HASIL PERHITUNGAN ====
-    // Read-only (getComputedFields) + edit formula field editable
-    // (updateComputedFieldFormula) — field roster/lookup TIDAK ikut, hanya
-    // tampil sebagai catatan (note) supaya admin tidak buta terhadap variabel
-    // yang dipakai rule tapi tidak diisi manual di kuesioner.
+    // ==== VARIABEL HASIL PERHITUNGAN (CRUD) ====
+    // Tiga macam kartu: bawaan ber-Formula (rumus bisa diubah/reset — id &
+    // label tetap), bawaan tetap-di-kode (roster/lookup, hanya catatan), dan
+    // CUSTOM buatan admin (bisa dibuat/diedit/dihapus penuh). Semua mutasi
+    // tetap dicek password admin per-panggilan di server.
 
     function renderComputedFields() {
       var wrap = el('acf-list');
       wrap.innerHTML = '';
-      if (!Adm.computedFields.length) {
-        wrap.innerHTML = '<p class="text-sm text-slate-400">Tidak ada variabel.</p>';
-        return;
-      }
+      if (!Adm.computedFields.length) { emptyState(wrap, 'Belum ada variabel.'); return; }
       Adm.computedFields.forEach(function (f) {
         var row = document.createElement('div');
         row.setAttribute('data-testid', 'acf-row-' + f.id);
-        row.className = 'rounded-xl border border-slate-200 p-3 space-y-2';
+        row.className = 'row-card rounded-xl border border-slate-200 bg-white p-3 space-y-2';
 
-        var badges = f.editable ? badge('Formula', 'bg-indigo-100 text-indigo-700') : badge('Tetap di kode', 'bg-slate-100 text-slate-500');
-        if (f.editable && f.overridden) badges += ' ' + badge('diedit admin', 'bg-orange-100 text-orange-700');
+        var badges;
+        if (f.custom) badges = badge('Custom', 'bg-emerald-100 text-emerald-700');
+        else if (f.editable) badges = badge('Formula', 'bg-indigo-100 text-indigo-700');
+        else badges = badge('Tetap di kode', 'bg-slate-100 text-slate-500');
+        if (f.editable && !f.custom && f.overridden) badges += ' ' + badge('diedit admin', 'bg-orange-100 text-orange-700');
+
         var head = document.createElement('div');
         head.className = 'flex items-center gap-2 flex-wrap';
         head.innerHTML =
           '<span class="font-mono text-xs font-semibold text-indigo-700"></span>' +
-          '<span class="text-sm text-slate-600"></span>' + badges;
+          '<div class="flex gap-1">' + badges + '</div>';
         head.children[0].textContent = f.id;
-        head.children[1].textContent = f.label;
         row.appendChild(head);
 
-        if (f.editable) {
-          var editWrap = document.createElement('div');
-          editWrap.className = 'flex flex-col sm:flex-row gap-2';
-          var input = document.createElement('input');
-          input.className = 'flex-1 h-11 px-3 text-sm rounded-lg border border-slate-300 font-mono';
-          input.setAttribute('data-testid', 'acf-formula-' + f.id);
-          input.value = f.formula;
-          editWrap.appendChild(input);
-          var btnRow = document.createElement('div');
-          btnRow.className = 'flex gap-2';
-          btnRow.appendChild(smallBtn('Simpan', 'acf-save-' + f.id, false, function () { saveComputedFormula(f, input); }, 'text-emerald-700'));
-          if (f.overridden) {
-            btnRow.appendChild(smallBtn('Reset', 'acf-reset-' + f.id, false, function () { resetComputedFormula(f); }));
-          }
-          editWrap.appendChild(btnRow);
-          row.appendChild(editWrap);
+        var lbl = document.createElement('p');
+        lbl.className = 'text-sm text-slate-600 leading-snug';
+        lbl.textContent = f.label;
+        row.appendChild(lbl);
 
-          var err = document.createElement('p');
-          err.className = 'hidden text-xs text-red-600';
-          err.setAttribute('data-testid', 'acf-error-' + f.id);
-          row.appendChild(err);
+        if (f.editable) {
+          var chip = document.createElement('code');
+          chip.className = 'formula-chip';
+          chip.setAttribute('data-testid', 'acf-formula-' + f.id);
+          chip.textContent = '= ' + f.formula;
+          row.appendChild(chip);
+
+          var btns = document.createElement('div');
+          btns.className = 'flex gap-2 flex-wrap';
+          btns.appendChild(smallBtn('Edit', 'acf-edit-' + f.id, false, function () { openComputedDialog(f); }));
+          if (f.custom) {
+            btns.appendChild(smallBtn('Hapus', 'acf-delete-' + f.id, false, function () { confirmDeleteComputed(f); }, 'text-red-600'));
+          } else if (f.overridden) {
+            btns.appendChild(smallBtn('Reset ke default', 'acf-reset-' + f.id, false, function () { resetComputedFormula(f); }));
+          }
+          row.appendChild(btns);
         } else {
           var note = document.createElement('p');
-          note.className = 'text-xs text-slate-500';
+          note.className = 'text-xs text-slate-400 leading-relaxed';
           note.textContent = f.note || '';
           row.appendChild(note);
         }
@@ -629,34 +791,101 @@
       UiFx.staggerIn(wrap.children, 30);
     }
 
-    function computedError(fieldId) { return el('acf-list').querySelector('[data-testid="acf-error-' + fieldId + '"]'); }
+    // -- dialog tambah/edit variabel --
 
-    function saveComputedFormula(f, input) {
-      var err = computedError(f.id);
-      err.classList.add('hidden');
-      gsRun('updateComputedFieldFormula', Adm.pw, Adm.jenis, f.id, input.value)
-        .then(function (res) {
-          if (!(res && res.ok)) {
-            err.textContent = serverError(res);
-            err.classList.remove('hidden');
-            return;
-          }
-          loadAll();
-        })
-        .catch(function () {
-          err.textContent = 'Gagal terhubung ke server.';
-          err.classList.remove('hidden');
-        });
+    function openComputedDialog(f) {
+      Adm.editingCF = f || null;
+      var isCustom = !f || f.custom;
+      el('acf-dialog-title').textContent = f ? 'Edit Variabel' : 'Tambah Variabel';
+      el('acf-alias').value = f ? f.id : '';
+      el('acf-alias').disabled = !!f;
+      el('acf-alias-hint').classList.toggle('hidden', !!f);
+      el('acf-label').value = f ? f.label : '';
+      // Label variabel bawaan berasal dari kode — tidak bisa diganti.
+      el('acf-label').disabled = !isCustom;
+      el('acf-formula').value = f ? f.formula : '';
+      if (f && !f.custom) {
+        el('acf-default-formula').textContent = f.defaultFormula;
+        el('acf-default-hint').classList.remove('hidden');
+      } else {
+        el('acf-default-hint').classList.add('hidden');
+      }
+      el('acf-error').classList.add('hidden');
+      el('acf-var-search').value = '';
+      renderAcfVarPanel();
+      UiFx.openDialog(el('acf-dialog'));
+      wireAutoGrow(el('acf-dialog'));
     }
+
+    el('acf-add').addEventListener('click', function () { openComputedDialog(null); });
+    el('acf-cancel').addEventListener('click', function () { UiFx.closeDialog(el('acf-dialog')); });
+
+    el('acf-save').addEventListener('click', function () {
+      var showErr = function (msg) {
+        el('acf-error').textContent = msg;
+        el('acf-error').classList.remove('hidden');
+      };
+      el('acf-error').classList.add('hidden');
+      var f = Adm.editingCF;
+      var call;
+      if (!f) {
+        call = gsRun('createComputedField', Adm.pw, Adm.jenis, {
+          field_id: el('acf-alias').value,
+          label: el('acf-label').value,
+          formula: el('acf-formula').value
+        });
+      } else if (f.custom) {
+        call = gsRun('updateComputedField', Adm.pw, Adm.jenis, f.id, {
+          label: el('acf-label').value,
+          formula: el('acf-formula').value
+        });
+      } else {
+        call = gsRun('updateComputedFieldFormula', Adm.pw, Adm.jenis, f.id, el('acf-formula').value);
+      }
+      UiFx.btnBusy(el('acf-save'), true, 'Menyimpan…');
+      call.then(function (res) {
+        UiFx.btnBusy(el('acf-save'), false);
+        if (!(res && res.ok)) { showErr(serverError(res)); return; }
+        UiFx.closeDialog(el('acf-dialog'));
+        UiFx.toast('Variabel tersimpan.');
+        loadAll();
+      }).catch(function () {
+        UiFx.btnBusy(el('acf-save'), false);
+        showErr('Gagal terhubung ke server.');
+      });
+    });
 
     function resetComputedFormula(f) {
-      gsRun('updateComputedFieldFormula', Adm.pw, Adm.jenis, f.id, '')
-        .then(function (res) {
-          if (!(res && res.ok)) { alert(serverError(res)); return; }
-          loadAll();
-        })
-        .catch(function () { alert('Gagal terhubung ke server.'); });
+      runMutation(gsRun('updateComputedFieldFormula', Adm.pw, Adm.jenis, f.id, ''));
     }
+
+    // Hapus custom field: beri tahu rule aktif mana yang masih merujuknya —
+    // rule itu tidak error, tapi kondisinya jadi tak pernah cocok (nilai kosong).
+    function confirmDeleteComputed(f) {
+      var usedBy = Adm.rules.filter(function (r) {
+        return r.active && AdminLogic.fieldsUsedInWhen(r.when).indexOf(f.id) !== -1;
+      }).map(function (r) { return r.rule_id; });
+      var msg = 'Hapus variabel "' + f.id + '"?';
+      if (usedBy.length) {
+        msg += '\n\nPERHATIAN: masih dipakai rule aktif ' + usedBy.join(', ') +
+          ' — kondisi rule itu tidak akan pernah cocok lagi setelah variabel dihapus.';
+      }
+      if (!confirm(msg)) return;
+      runMutation(gsRun('deleteComputedField', Adm.pw, Adm.jenis, f.id));
+    }
+
+    // Panel variabel di dialog (sisip alias ke kotak formula). Variabel yang
+    // sedang diedit disembunyikan dari daftar (merujuk diri sendiri = nilai
+    // lama yang belum dihitung → 0, hampir pasti bukan yang dimaksud admin).
+    function renderAcfVarPanel() {
+      var q = el('acf-var-search').value.trim().toLowerCase();
+      var editingId = Adm.editingCF ? Adm.editingCF.id : null;
+      var fields = Adm.fields.filter(function (f) { return f.id !== editingId; });
+      renderVarChips(el('acf-var-list'), fields, q, function (alias) {
+        insertIntoTextarea(el('acf-formula'), alias);
+      });
+    }
+    el('acf-var-search').addEventListener('input', renderAcfVarPanel);
 
     // ==== KELOLA RULE ====
 
@@ -665,15 +894,12 @@
     function renderRules() {
       var wrap = el('ar-list');
       wrap.innerHTML = '';
-      if (!Adm.rules.length) {
-        wrap.innerHTML = '<p class="text-sm text-slate-400">Belum ada rule.</p>';
-        return;
-      }
+      if (!Adm.rules.length) { emptyState(wrap, 'Belum ada rule.'); return; }
       Adm.rules.forEach(function (r) {
         var row = document.createElement('div');
         row.setAttribute('data-testid', 'ar-row-' + r.rule_id);
-        row.className = 'rounded-xl border border-slate-200 p-3 space-y-2' + (r.active ? '' : ' opacity-60 bg-slate-50');
-        var badges = badge(r.rule_id, 'bg-slate-100 text-slate-600') + ' ' +
+        row.className = 'row-card rounded-xl border border-slate-200 bg-white p-3 space-y-2' + (r.active ? '' : ' opacity-60 bg-slate-50');
+        var badges = badge(r.rule_id, 'bg-slate-100 text-slate-600 font-mono') + ' ' +
           badge(r.severity, SEVERITY_CLS[r.severity] || SEVERITY_CLS.warning) +
           (r.active ? '' : ' ' + badge('NONAKTIF', 'bg-red-100 text-red-700'));
         row.innerHTML =
@@ -797,7 +1023,7 @@
         rm.type = 'button';
         rm.textContent = 'Hapus';
         rm.setAttribute('data-testid', 'ar-cond-remove-' + idx);
-        rm.className = 'h-8 px-2 rounded-lg text-xs font-medium text-red-600 active:bg-red-50 disabled:opacity-30';
+        rm.className = 'h-8 px-2 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 active:bg-red-100 disabled:opacity-30';
         rm.disabled = Adm.condRows.length <= 1; // selalu sisakan minimal 1 kondisi
         rm.addEventListener('click', function () { removeCondition(idx); });
         head.appendChild(rm);
@@ -809,6 +1035,7 @@
         list.appendChild(row);
       });
       el('ar-combinator-wrap').classList.toggle('hidden', Adm.condRows.length < 2);
+      wireAutoGrow(list);
     }
 
     // Baris kind 'simple': field / operator / pembanding / value.
@@ -861,9 +1088,9 @@
     // Baris kind 'formula': satu textarea ekspresi (klik chip Variabel menyisip).
     function renderFormulaBody(row, cond, idx) {
       var ta = document.createElement('textarea');
-      ta.className = 'ar-cond-formula w-full px-3 py-2 text-base rounded-xl border border-slate-300 font-mono';
+      ta.className = 'ar-cond-formula auto-grow w-full px-3 py-3 text-base rounded-xl border border-slate-300 font-mono';
       ta.setAttribute('data-testid', 'ar-cond-formula-' + idx);
-      ta.rows = 2;
+      ta.rows = 1;
       ta.spellcheck = false;
       ta.placeholder = 'mis. r26b / r26_total >= 0.5';
       ta.value = cond.formula || '';
@@ -942,6 +1169,7 @@
       el('ar-json').value = JSON.stringify(w.when, null, 2);
       updateAdvNote(false);
       showBuilder(false);
+      wireAutoGrow(el('ar-adv-wrap'));
     });
 
     // JSON → builder: hanya berhasil kalau strukturnya "sederhana" (leaf polos/
@@ -977,19 +1205,18 @@
       return s.length > 34 ? s.slice(0, 33).trim() + '…' : s;
     }
 
-    function renderVarPanel() {
-      var list = el('ar-var-list');
-      var q = el('ar-var-search').value.trim().toLowerCase();
-      list.innerHTML = '';
-      Adm.fields
+    // Bangun daftar chip variabel (dipakai dialog Rule DAN dialog Variabel).
+    function renderVarChips(listEl, fields, query, onPick) {
+      listEl.innerHTML = '';
+      fields
         .filter(function (f) {
-          return !q || f.id.toLowerCase().indexOf(q) !== -1 || String(f.label).toLowerCase().indexOf(q) !== -1;
+          return !query || f.id.toLowerCase().indexOf(query) !== -1 || String(f.label).toLowerCase().indexOf(query) !== -1;
         })
         .forEach(function (f) {
           var b = document.createElement('button');
           b.type = 'button';
-          b.setAttribute('data-testid', 'ar-var-' + f.id);
-          b.className = 'flex items-center gap-2 text-left px-2 py-1 rounded-lg border border-slate-200 bg-white active:bg-orange-50';
+          b.setAttribute('data-testid', listEl.id + '-' + f.id);
+          b.className = 'flex items-center gap-2 text-left px-2 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-orange-200 hover:bg-orange-50/50 active:bg-orange-50';
           var alias = document.createElement('span');
           alias.className = 'font-mono text-xs shrink-0 ' + (f.source === 'computed' ? 'text-indigo-700' : 'text-slate-700');
           alias.textContent = f.id;
@@ -998,14 +1225,34 @@
           meaning.textContent = shortLabel(f.label);
           b.appendChild(alias);
           b.appendChild(meaning);
-          b.addEventListener('click', function () { insertVar(f.id); });
-          list.appendChild(b);
+          b.addEventListener('click', function () { onPick(f.id); });
+          listEl.appendChild(b);
         });
-      if (!list.children.length) {
-        list.innerHTML = '<span class="text-xs text-slate-400">Tidak ada variabel cocok.</span>';
+      if (!listEl.children.length) {
+        listEl.innerHTML = '<span class="text-xs text-slate-400">Tidak ada variabel cocok.</span>';
       }
     }
+
+    function renderVarPanel() {
+      var q = el('ar-var-search').value.trim().toLowerCase();
+      renderVarChips(el('ar-var-list'), Adm.fields, q, insertVar);
+    }
     el('ar-var-search').addEventListener('input', renderVarPanel);
+
+    // Sisip alias di posisi kursor sebuah textarea (dipakai kedua dialog).
+    function insertIntoTextarea(ta, alias) {
+      var start = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
+      var end = ta.selectionEnd == null ? ta.value.length : ta.selectionEnd;
+      var before = ta.value.slice(0, start);
+      var after = ta.value.slice(end);
+      var pad = before && !/\s$/.test(before) ? ' ' : '';
+      var insert = pad + alias + ' ';
+      ta.value = before + insert + after;
+      var caret = (before + insert).length;
+      ta.focus();
+      ta.setSelectionRange(caret, caret);
+      autoGrow(ta);
+    }
 
     // Textarea formula yang jadi sasaran sisip: yang terakhir difokuskan (kalau
     // masih ada), atau satu-satunya kalau memang cuma ada satu.
@@ -1018,17 +1265,8 @@
     function insertVar(alias) {
       var ta = activeFormulaTextarea();
       if (!ta) { UiFx.toast('Klik dulu kotak Formula untuk menyisipkan variabel.'); return; }
-      var start = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
-      var end = ta.selectionEnd == null ? ta.value.length : ta.selectionEnd;
-      var before = ta.value.slice(0, start);
-      var after = ta.value.slice(end);
-      var pad = before && !/\s$/.test(before) ? ' ' : '';
-      var insert = pad + alias + ' ';
-      ta.value = before + insert + after;
-      var caret = (before + insert).length;
       Adm.activeFormulaEl = ta;
-      ta.focus();
-      ta.setSelectionRange(caret, caret);
+      insertIntoTextarea(ta, alias);
     }
 
     function openRuleDialog(r) {
@@ -1066,6 +1304,7 @@
       renderConditions();
       renderVarPanel();
       UiFx.openDialog(el('ar-dialog'));
+      wireAutoGrow(el('ar-dialog'));
     }
 
     el('ar-add').addEventListener('click', function () { openRuleDialog(null); });
@@ -1097,6 +1336,7 @@
         UiFx.btnBusy(el('ar-save'), false);
         if (!(res && res.ok)) { showErr(serverError(res)); return; }
         UiFx.closeDialog(el('ar-dialog'));
+        UiFx.toast('Rule tersimpan.');
         loadAll();
       }).catch(function () {
         UiFx.btnBusy(el('ar-save'), false);
@@ -1119,6 +1359,7 @@
       });
       if (!relevant.length) relevant = Adm.questions.filter(function (q) { return q.active; });
       el('ar-preview-answers').value = JSON.stringify(AdminLogic.buildAnswersTemplate(relevant), null, 2);
+      autoGrow(el('ar-preview-answers'));
     });
 
     el('ar-preview-run').addEventListener('click', function () {

@@ -4,7 +4,7 @@
  * sederhana (field/op/value) tanpa bahasa agregat generik.
  * Logic murni: tanpa dependency GAS, di-unit-test di Node.
  *
- * Dua kelompok field, TIDAK dicampur:
+ * Tiga kelompok field, TIDAK dicampur:
  *   1. FORMULA-EDITABLE (aritmetika flat, tanpa akses roster/tabel eksternal)
  *      — didefinisikan sebagai string Formula.js (parser aman, TANPA eval)
  *      di EDITABLE_DEFAULTS, admin bisa menimpanya lewat tab "Variabel
@@ -16,6 +16,12 @@
  *      satu fungsi kecil per field seperti sebelumnya (CLAUDE.md "GAP
  *      ARSITEKTUR"), TIDAK bisa diedit dari UI karena butuh primitif di luar
  *      grammar aritmetika flat (roster_*, lookup KBLI, dst).
+ *   3. CUSTOM buatan admin (CRUD halaman config) — grammar aritmetika flat
+ *      yang SAMA dengan kelompok 1, dioper via refs.customFields
+ *      ([{id, formula}], urut baris tab "Variabel Hitungan") dan dievaluasi
+ *      SETELAH pipeline bawaan — boleh merujuk jawaban kuesioner, field
+ *      bawaan, dan custom field yang barisnya lebih dulu. Formula rusak →
+ *      nilai null ("tidak berlaku"), submit tetap jalan.
  *
  * Guard pembagian (kedua kelompok): penyebut 0/kosong → hasil null; evaluator
  * memperlakukan null sebagai "tidak berlaku" (kondisi false).
@@ -206,13 +212,21 @@ var ComputedFields = (function () {
   /**
    * Kembalikan SALINAN answers dengan computed fields ditambahkan/ditimpa.
    * @param refs tabel referensi eksternal opsional:
-   *        { ntbRasio: {kode→rasio}, formulaOverrides: {fieldId→formula} }.
+   *        { ntbRasio: {kode→rasio}, formulaOverrides: {fieldId→formula},
+   *          customFields: [{id, formula}] } — lihat kelompok 3 di atas.
    */
   function augment(jenis, answers, refs) {
     var out = {};
     Object.keys(answers || {}).forEach(function (k) { out[k] = answers[k]; });
     (PIPELINE[jenis] || []).forEach(function (step) {
       out[step[0]] = step[1](out, refs);
+    });
+    // Custom field admin dievaluasi paling akhir, urut baris tab — formula
+    // rusak (mis. tab diedit manual) → null, TIDAK menggagalkan submit.
+    ((refs && refs.customFields) || []).forEach(function (cf) {
+      var val = null;
+      try { val = formulaLib().evaluateExpr(cf.formula, out); } catch (e) { val = null; }
+      out[cf.id] = val;
     });
     return out;
   }

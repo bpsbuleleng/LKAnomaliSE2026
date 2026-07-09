@@ -99,12 +99,34 @@ function deleteRecord(pmlEmail, recordId) {
  * SubmitLogic. Validasi gagal → { ok:true, submitted:false, missing } dan
  * jawaban TETAP tersimpan (draft). Submit ulang me-rerun rule tanpa syarat.
  */
+// Pilah baris tab "Variabel Hitungan" milik satu jenis jadi dua kelompok:
+// override formula field BAWAAN yang editable ({field_id → formula}) vs
+// custom field buatan admin (array, urut baris tab = urutan evaluasi).
+// Baris ber-id field bawaan NON-editable diabaikan (hanya mungkin muncul
+// kalau tab diedit manual — jangan sampai menimpa logic roster/lookup kode).
+function splitComputedDefs_(jenis) {
+  var overrides = {}, custom = [];
+  SheetDb.readComputedFieldDefs(jenis).forEach(function (d) {
+    var meta = ComputedFields.fieldMeta(jenis, d.field_id);
+    if (meta) {
+      if (meta.editable) overrides[d.field_id] = d.formula;
+      return;
+    }
+    custom.push(d);
+  });
+  return { overrides: overrides, custom: custom };
+}
+
 // Tabel referensi untuk computed field: lookup batas_rasio_ntb (usaha saja)
-// + override formula field editable (kedua jenis) — tab hilang/kosong →
-// default berlaku, submit tetap jalan. Dipakai submitRecord DAN previewRule
-// supaya perilaku preview identik dengan submit.
+// + override formula field editable + custom field admin (kedua jenis) —
+// tab hilang/kosong → default berlaku, submit tetap jalan. Dipakai
+// submitRecord DAN previewRule supaya perilaku preview identik dengan submit.
 function computedRefs_(jenis) {
-  var refs = { formulaOverrides: SheetDb.readComputedFieldFormulas(jenis) };
+  var split = splitComputedDefs_(jenis);
+  var refs = {
+    formulaOverrides: split.overrides,
+    customFields: split.custom.map(function (d) { return { id: d.field_id, formula: d.formula }; })
+  };
   if (jenis === 'usaha') refs.ntbRasio = ComputedFields.buildNtbRasioMap(SheetDb.readNtbRasio());
   return refs;
 }
@@ -189,29 +211,36 @@ function getRuleFieldOptions(jenis) {
   ComputedFields.listFields(jenis).forEach(function (f) {
     fields.push({ id: f.id, label: f.label, source: 'computed', type: 'number', options: null });
   });
+  splitComputedDefs_(jenis).custom.forEach(function (d) {
+    fields.push({ id: d.field_id, label: d.label, source: 'computed', type: 'number', options: null });
+  });
   return { ok: true, fields: fields };
 }
 
 /**
- * Daftar SEMUA computed field jenis ini (editable maupun tetap-di-kode) untuk
- * halaman admin "Variabel Hitungan" — supaya admin tidak buta terhadap
- * variabel hasil perhitungan yang dipakai rule. Read-only, unprivileged
- * (sama seperti getQuestions/getRules) — password admin cuma dicek saat
- * MENGUBAH formula (updateComputedFieldFormula).
+ * Daftar SEMUA computed field jenis ini (bawaan editable, bawaan
+ * tetap-di-kode, DAN custom buatan admin) untuk halaman admin "Variabel
+ * Hitungan" — supaya admin tidak buta terhadap variabel hasil perhitungan
+ * yang dipakai rule. Read-only, unprivileged (sama seperti
+ * getQuestions/getRules) — password admin cuma dicek saat MENGUBAH
+ * (updateComputedFieldFormula / create/update/deleteComputedField).
  */
 function getComputedFields(jenis) {
   if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
-  var overrides = SheetDb.readComputedFieldFormulas(jenis);
+  var split = splitComputedDefs_(jenis);
   var fields = ComputedFields.listFields(jenis).map(function (f) {
-    var out = { id: f.id, label: f.label, editable: f.editable };
+    var out = { id: f.id, label: f.label, editable: f.editable, custom: false };
     if (f.editable) {
       out.defaultFormula = f.defaultFormula;
-      out.formula = overrides[f.id] || f.defaultFormula;
-      out.overridden = !!overrides[f.id];
+      out.formula = split.overrides[f.id] || f.defaultFormula;
+      out.overridden = !!split.overrides[f.id];
     } else {
       out.note = f.note;
     }
     return out;
+  });
+  split.custom.forEach(function (d) {
+    fields.push({ id: d.field_id, label: d.label, editable: true, custom: true, formula: d.formula });
   });
   return { ok: true, fields: fields };
 }
@@ -329,8 +358,79 @@ function updateComputedFieldFormula(adminPassword, jenis, fieldId, formula) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    SheetDb.upsertComputedFieldFormula(jenis, fieldId, text);
+    if (text) SheetDb.upsertComputedFieldDef(jenis, fieldId, text, '');
+    else SheetDb.deleteComputedFieldDef(jenis, fieldId);
     return { ok: true, formula: text || meta.defaultFormula, overridden: !!text };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ==== CUSTOM COMPUTED FIELD (CRUD "Variabel Hitungan") ====
+// Custom field = variabel hitungan TAMBAHAN buatan admin: aritmetika flat
+// lewat parser aman Formula.js (grammar sama dengan override formula bawaan),
+// dievaluasi saat submit SETELAH pipeline bawaan (ComputedFields.augment),
+// otomatis bisa dipakai kondisi rule (getRuleFieldOptions). Logic murni di
+// ConfigLogic; di sini hanya gerbang admin + baca/tulis sheet di bawah lock.
+
+// Alias yang tak boleh dipakai custom field: alias pertanyaan jenis itu
+// (termasuk nonaktif — bisa diaktifkan lagi), computed bawaan, dan 'roster'
+// (kunci struktural answers untuk kelompok roster).
+function reservedComputedIds_(jenis) {
+  var ids = ['roster'];
+  SheetDb.readQuestions().forEach(function (q) {
+    if (q.jenis === jenis) ids.push(q.question_id);
+  });
+  ComputedFields.listFields(jenis).forEach(function (f) { ids.push(f.id); });
+  return ids;
+}
+
+function createComputedField(adminPassword, jenis, input) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var res = ConfigLogic.applyCreateComputedField(
+      splitComputedDefs_(jenis).custom, jenis, input, reservedComputedIds_(jenis));
+    if (!res.ok) return res;
+    SheetDb.upsertComputedFieldDef(jenis, res.def.field_id, res.def.formula, res.def.label);
+    return { ok: true, field: res.def };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateComputedField(adminPassword, jenis, fieldId, patch) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var res = ConfigLogic.applyUpdateComputedField(splitComputedDefs_(jenis).custom, fieldId, patch);
+    if (!res.ok) return res;
+    SheetDb.upsertComputedFieldDef(jenis, res.def.field_id, res.def.formula, res.def.label);
+    return { ok: true, field: res.def };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Hanya custom field yang bisa dihapus (bawaan cuma bisa reset formula) —
+// applyDeleteComputedField menolak id yang tak ada di defs custom.
+function deleteComputedField(adminPassword, jenis, fieldId) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  if (jenis !== 'usaha' && jenis !== 'keluarga') return { ok: false, error: 'INVALID_JENIS' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var res = ConfigLogic.applyDeleteComputedField(splitComputedDefs_(jenis).custom, fieldId);
+    if (!res.ok) return res;
+    SheetDb.deleteComputedFieldDef(jenis, fieldId);
+    return { ok: true, field_id: fieldId };
   } finally {
     lock.releaseLock();
   }

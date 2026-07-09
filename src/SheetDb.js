@@ -37,12 +37,13 @@ var SheetDb = (function () {
   // Tab referensi buatan user (~2560 baris, kode KBLI 5 digit → rasio NTB
   // SE2016) — app hanya baca, dipakai computed field batas_rasio_ntb (U9).
   var NTB_HEADERS = ['KBLI 2025', 'Judul KBLI 2025', 'Kategori KBLI 2020', 'Rasio NTB SE 2016'];
-  // Tab BARU (dibuat aplikasi sendiri, bukan diimpor user): override formula
-  // computed field yang boleh diedit admin (lihat ComputedFields
-  // EDITABLE_DEFAULTS). SPARSE — hanya field yang di-override admin punya
-  // baris; field lain pakai default di kode. Baris dihapus (bukan
-  // dikosongkan) saat admin reset ke default lewat updateComputedFieldFormula.
-  var COMPUTED_HEADERS = ['field_id', 'jenis', 'formula'];
+  // Tab BARU (dibuat aplikasi sendiri, bukan diimpor user). Dua macam baris
+  // hidup berdampingan: (a) override formula computed field bawaan yang boleh
+  // diedit admin (label KOSONG; lihat ComputedFields EDITABLE_DEFAULTS —
+  // SPARSE, baris dihapus saat reset ke default) dan (b) custom computed
+  // field buatan admin lewat CRUD halaman config (label TERISI). Pemilahan
+  // baris jadi override vs custom urusan DataAccess (ComputedFields.fieldMeta).
+  var COMPUTED_HEADERS = ['field_id', 'jenis', 'formula', 'label'];
 
   // Satu handle spreadsheet per eksekusi (global GAS hidup sepanjang satu
   // panggilan google.script.run saja — ini memo, bukan state antar panggilan).
@@ -154,49 +155,78 @@ var SheetDb = (function () {
   }
 
   /**
-   * Baca override formula computed field milik SATU jenis jadi map
-   * {field_id: formula}. Tab belum ada / baris tanpa formula → dilewati
-   * (field itu pakai default di kode — lihat ComputedFields.formulaStep).
+   * Baca SEMUA baris tab "Variabel Hitungan" milik SATU jenis, urut baris
+   * sheet (urutan = urutan evaluasi custom field), jadi
+   * [{field_id, formula, label}]. Tab belum ada / baris tanpa formula →
+   * dilewati. Pemilahan override-vs-custom BUKAN di sini (lihat komentar
+   * COMPUTED_HEADERS) — SheetDb tidak tahu-menahu daftar field bawaan.
    */
-  function readComputedFieldFormulas(jenis) {
-    if (!ss().getSheetByName(TABS.COMPUTED)) return {};
-    var map = {};
+  function readComputedFieldDefs(jenis) {
+    if (!ss().getSheetByName(TABS.COMPUTED)) return [];
+    var out = [];
     readTable(TABS.COMPUTED).forEach(function (r) {
       if (s_(r.jenis) !== jenis) return;
       var id = s_(r.field_id);
       var formula = s_(r.formula);
-      if (id && formula) map[id] = formula;
+      if (id && formula) out.push({ field_id: id, formula: formula, label: s_(r.label) });
     });
-    return map;
+    return out;
+  }
+
+  /** Baris (jenis, fieldId) di tab COMPUTED → index baris sheet, -1 kalau tak ada. */
+  function findComputedRow_(sh, jenis, fieldId) {
+    var last = sh.getLastRow();
+    if (last < 2) return -1;
+    var ids = sh.getRange(2, 1, last - 1, 2).getDisplayValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i][0] === fieldId && ids[i][1] === jenis) return i + 2;
+    }
+    return -1;
+  }
+
+  // Tab era pra-CRUD hanya punya 3 kolom — sisipkan header 'label' sekali
+  // jalan (readTable memetakan per NAMA header, jadi posisi kolom aman).
+  function ensureComputedLabelColumn_(sh) {
+    var lastCol = Math.max(1, sh.getLastColumn());
+    var headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0]
+      .map(function (h) { return String(h).trim(); });
+    if (headers.indexOf('label') !== -1) return;
+    var col = lastCol + 1;
+    sh.getRange(1, col, sh.getMaxRows(), 1).setNumberFormat('@');
+    sh.getRange(1, col, 1, 1).setValues([['label']]).setFontWeight('bold');
   }
 
   /**
-   * Simpan/timpa formula override SATU field, atau hapus barisnya kalau
-   * formula kosong (= reset ke default) — tab TIDAK PERNAH menumpuk baris
-   * kosong. Membuat tab kalau belum ada (dipanggil pertama kali admin
-   * mengedit formula, bukan lewat adminSetupSheets — tab ini bukan bagian
-   * dari data awal). Caller WAJIB di bawah ScriptLock.
+   * Simpan/timpa SATU baris definisi (override bawaan → label '', custom →
+   * label terisi). Membuat tab kalau belum ada (dipanggil pertama kali admin
+   * menyimpan dari halaman config — tab ini bukan bagian data awal).
+   * Caller WAJIB di bawah ScriptLock.
    */
-  function upsertComputedFieldFormula(jenis, fieldId, formula) {
+  function upsertComputedFieldDef(jenis, fieldId, formula, label) {
     if (!ss().getSheetByName(TABS.COMPUTED)) ensureTab(TABS.COMPUTED, COMPUTED_HEADERS);
     var sh = mustSheet(TABS.COMPUTED);
-    var last = sh.getLastRow();
-    var rowIndex = -1;
-    if (last >= 2) {
-      var ids = sh.getRange(2, 1, last - 1, 2).getDisplayValues();
-      for (var i = 0; i < ids.length; i++) {
-        if (ids[i][0] === fieldId && ids[i][1] === jenis) { rowIndex = i + 2; break; }
-      }
-    }
-    if (!formula) {
-      if (rowIndex !== -1) sh.deleteRow(rowIndex);
-      return;
-    }
+    ensureComputedLabelColumn_(sh);
+    var rowIndex = findComputedRow_(sh, jenis, fieldId);
     if (rowIndex === -1) {
-      rowIndex = last + 1;
+      rowIndex = sh.getLastRow() + 1;
       ensureCapacity_(sh, rowIndex);
     }
-    sh.getRange(rowIndex, 1, 1, COMPUTED_HEADERS.length).setValues([[fieldId, jenis, formula]]);
+    sh.getRange(rowIndex, 1, 1, COMPUTED_HEADERS.length)
+      .setValues([[fieldId, jenis, formula, s_(label)]]);
+  }
+
+  /**
+   * Hapus SATU baris definisi (reset override ke default / hapus custom
+   * field) — baris benar-benar dibuang supaya tab tak menumpuk baris kosong.
+   * Caller WAJIB di bawah ScriptLock. @return true kalau barisnya ketemu.
+   */
+  function deleteComputedFieldDef(jenis, fieldId) {
+    if (!ss().getSheetByName(TABS.COMPUTED)) return false;
+    var sh = mustSheet(TABS.COMPUTED);
+    var rowIndex = findComputedRow_(sh, jenis, fieldId);
+    if (rowIndex === -1) return false;
+    sh.deleteRow(rowIndex);
+    return true;
   }
 
   function petugasToRow_(p) { return PETUGAS_HEADERS.map(function (h) { return s_(p[h]); }); }
@@ -444,8 +474,9 @@ var SheetDb = (function () {
     readPetugas: readPetugas,
     readAlokasi: readAlokasi,
     readNtbRasio: readNtbRasio,
-    readComputedFieldFormulas: readComputedFieldFormulas,
-    upsertComputedFieldFormula: upsertComputedFieldFormula,
+    readComputedFieldDefs: readComputedFieldDefs,
+    upsertComputedFieldDef: upsertComputedFieldDef,
+    deleteComputedFieldDef: deleteComputedFieldDef,
     readRecords: readRecords,
     upsertRecord: upsertRecord,
     deleteRecordRow: deleteRecordRow,

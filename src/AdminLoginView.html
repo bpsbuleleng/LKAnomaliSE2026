@@ -1,19 +1,22 @@
-<section id="admin-view-login" data-testid="admin-login-view" class="view max-w-md mx-auto px-4 py-10">
-  <div class="bg-white rounded-2xl shadow p-6 space-y-4">
-    <h1 class="text-xl font-bold">Kelola Pertanyaan &amp; Rule</h1>
-    <p class="text-sm text-slate-500">
-      Halaman khusus admin BPS Kabupaten Buleleng. Masukkan password admin
-      untuk melanjutkan.
-    </p>
+<section id="admin-view-login" data-testid="admin-login-view" class="view max-w-md mx-auto px-4 py-14">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+    <div class="w-11 h-11 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center text-xl font-bold select-none" aria-hidden="true">⚙</div>
+    <div>
+      <h1 class="text-xl font-bold tracking-tight">Config <span class="text-orange-600">SE2026</span></h1>
+      <p class="text-sm text-slate-500 mt-1 leading-relaxed">
+        Kelola pertanyaan, rule anomali, &amp; variabel hitungan — khusus admin
+        BPS Kabupaten Buleleng. Masukkan password admin untuk melanjutkan.
+      </p>
+    </div>
     <form id="admin-login-form" class="space-y-4">
       <div>
         <label class="block text-sm font-medium mb-1" for="admin-password">Password admin</label>
         <input id="admin-password" data-testid="admin-password" type="password" autocomplete="off"
-          class="w-full h-12 px-3 text-base rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500">
+          class="w-full h-12 px-3 text-base rounded-xl border border-slate-300">
       </div>
       <p id="admin-login-error" data-testid="admin-login-error" class="hidden text-sm text-red-600"></p>
       <button id="admin-login-submit" data-testid="admin-login-submit" type="submit"
-        class="w-full h-12 rounded-xl bg-orange-600 text-white text-base font-semibold active:bg-orange-700 disabled:opacity-50">
+        class="w-full h-12 rounded-xl bg-orange-600 text-white text-base font-semibold hover:bg-orange-700 active:bg-orange-700 disabled:opacity-50">
         Masuk
       </button>
     </form>

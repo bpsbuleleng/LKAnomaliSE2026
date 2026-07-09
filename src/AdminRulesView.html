@@ -1,26 +1,28 @@
-<div class="bg-white rounded-2xl shadow p-5 space-y-4">
-  <div class="flex items-center justify-between">
-    <h2 class="text-lg font-bold">Kelola Rule</h2>
-    <button id="ar-add" data-testid="ar-add" type="button"
-      class="h-11 px-4 rounded-xl bg-orange-600 text-white text-sm font-semibold active:bg-orange-700">+ Tambah</button>
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
+  <div class="space-y-1.5">
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <h2 class="text-lg font-bold tracking-tight">Kelola Rule</h2>
+      <button id="ar-add" data-testid="ar-add" type="button"
+        class="shrink-0 h-11 px-4 rounded-xl bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 active:bg-orange-700">+ Tambah</button>
+    </div>
+    <p class="text-xs text-slate-400 leading-relaxed">
+      Satu rule = satu anomali: <span class="font-mono">message</span> yang tampil +
+      kondisi <span class="font-mono">when</span> pendeteksinya. Nonaktifkan = rule
+      berhenti dijalankan saat submit, baris tidak dihapus.
+    </p>
   </div>
-  <p class="text-xs text-slate-400">
-    Satu rule = satu anomali: <span class="font-mono">message</span> yang tampil +
-    kondisi <span class="font-mono">when</span> pendeteksinya. Nonaktifkan = rule
-    berhenti dijalankan saat submit, baris tidak dihapus.
-  </p>
   <div id="ar-list" class="space-y-2"></div>
 </div>
 
 <!-- Dialog tambah/edit rule -->
 <div id="ar-dialog" data-testid="ar-dialog"
-  class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
-  <div class="dlg-panel bg-white w-full max-w-md sm:max-w-xl lg:max-w-2xl rounded-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
-    <h2 id="ar-dialog-title" class="font-bold text-lg">Tambah Rule</h2>
+  class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/40">
+  <div class="dlg-panel bg-white w-full max-w-md sm:max-w-xl lg:max-w-2xl rounded-t-2xl sm:rounded-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+    <h2 id="ar-dialog-title" class="font-bold text-lg tracking-tight">Tambah Rule</h2>
     <div class="grid grid-cols-2 gap-3">
       <div>
         <label class="block text-sm font-medium mb-1">Rule ID</label>
-        <input id="ar-rule-id" data-testid="ar-rule-id" placeholder="otomatis"
+        <input id="ar-rule-id" data-testid="ar-rule-id" placeholder="otomatis" spellcheck="false" autocomplete="off"
           class="w-full h-12 px-3 text-base rounded-xl border border-slate-300 font-mono">
       </div>
       <div>
@@ -39,8 +41,8 @@
     </p>
     <div>
       <label class="block text-sm font-medium mb-1">Pesan anomali (message)</label>
-      <input id="ar-message" data-testid="ar-message"
-        class="w-full h-12 px-3 text-base rounded-xl border border-slate-300">
+      <textarea id="ar-message" data-testid="ar-message" rows="1"
+        class="auto-grow w-full px-3 py-3 text-base rounded-xl border border-slate-300"></textarea>
     </div>
 
     <!-- Builder kondisi: 1+ kondisi digabung DAN/ATAU. Tiap kondisi bertipe
@@ -57,13 +59,13 @@
       </div>
       <div id="ar-cond-list" data-testid="ar-cond-list" class="space-y-3"></div>
       <button id="ar-cond-add" data-testid="ar-cond-add" type="button"
-        class="w-full h-11 rounded-xl border border-dashed border-slate-300 text-sm font-medium text-slate-600 active:bg-slate-50">+ Tambah kondisi</button>
+        class="w-full h-11 rounded-xl border border-dashed border-slate-300 text-sm font-medium text-slate-600 hover:bg-slate-50 active:bg-slate-100">+ Tambah kondisi</button>
 
       <!-- Lompat ke editor JSON: buat kondisi yang butuh AND & OR dicampur
            berkurung (nested) — di luar jangkauan builder flat ini sengaja. -->
       <button id="ar-switch-advanced" data-testid="ar-switch-advanced" type="button"
-        class="w-full text-center text-sm font-medium text-slate-500 underline decoration-dotted active:text-slate-700">
-        Butuh AND & OR dicampur / berkurung? Pakai editor JSON →
+        class="w-full text-center text-sm font-medium text-slate-500 underline decoration-dotted hover:text-slate-700 active:text-slate-800">
+        Butuh AND &amp; OR dicampur / berkurung? Pakai editor JSON →
       </button>
 
       <!-- Panel Variabel: referensi alias field (selalu tampak). Klik chip =
@@ -89,7 +91,7 @@
       </p>
       <label class="block text-sm font-medium">Kondisi <span class="font-mono">when</span> (JSON)</label>
       <textarea id="ar-json" data-testid="ar-json" rows="7" spellcheck="false"
-        class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 font-mono"></textarea>
+        class="auto-grow w-full px-3 py-2 text-sm rounded-xl border border-slate-300 font-mono"></textarea>
       <p class="text-xs text-slate-400">
         Kombinator: all/any (boleh bersarang — all/any di dalam all/any = kurung),
         roster_any/roster_all/roster_count + condition.
@@ -99,20 +101,20 @@
         <span class="font-mono">{"all":[{"field":"a","op":"==","value":1},{"any":[{"field":"b","op":"&gt;","value":0},{"field":"c","op":"&lt;","value":0}]}]}</span>
       </p>
       <button id="ar-switch-builder" data-testid="ar-switch-builder" type="button"
-        class="text-sm font-medium text-orange-700 active:text-orange-800">← Coba buka di builder sederhana</button>
+        class="text-sm font-medium text-orange-700 hover:text-orange-800 active:text-orange-900">← Coba buka di builder sederhana</button>
     </div>
 
     <!-- Preview/Test: evaluator yang SAMA dengan submit, dijalankan di server -->
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
       <p class="text-sm font-semibold text-slate-600">Preview / Test rule</p>
-      <textarea id="ar-preview-answers" data-testid="ar-preview-answers" rows="5" spellcheck="false"
+      <textarea id="ar-preview-answers" data-testid="ar-preview-answers" rows="3" spellcheck="false"
         placeholder='Contoh jawaban JSON, mis. {"b4r5": 600}'
-        class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 font-mono"></textarea>
+        class="auto-grow w-full px-3 py-2 text-sm rounded-xl border border-slate-300 font-mono"></textarea>
       <div class="flex gap-2">
         <button id="ar-preview-template" data-testid="ar-preview-template" type="button"
-          class="h-11 px-3 rounded-lg border border-slate-300 text-sm font-medium active:bg-slate-100">Isi template</button>
+          class="h-11 px-3 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 active:bg-slate-100">Isi template</button>
         <button id="ar-preview-run" data-testid="ar-preview-run" type="button"
-          class="h-11 px-3 rounded-lg bg-slate-700 text-white text-sm font-semibold active:bg-slate-800">Jalankan preview</button>
+          class="h-11 px-3 rounded-lg bg-slate-700 text-white text-sm font-semibold hover:bg-slate-800 active:bg-slate-900">Jalankan preview</button>
       </div>
       <p id="ar-preview-result" data-testid="ar-preview-result" class="hidden text-sm font-semibold"></p>
       <p id="ar-preview-computed" data-testid="ar-preview-computed" class="hidden text-xs text-slate-500 font-mono whitespace-pre-wrap"></p>
@@ -121,9 +123,9 @@
     <p id="ar-error" data-testid="ar-error" class="hidden text-sm text-red-600"></p>
     <div class="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
       <button id="ar-cancel" data-testid="ar-cancel" type="button"
-        class="h-12 sm:px-6 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+        class="h-12 sm:px-6 rounded-xl border border-slate-300 font-medium hover:bg-slate-50 active:bg-slate-100">Batal</button>
       <button id="ar-save" data-testid="ar-save" type="button"
-        class="h-12 sm:px-6 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700 disabled:opacity-50">Simpan</button>
+        class="h-12 sm:px-6 rounded-xl bg-orange-600 text-white font-semibold hover:bg-orange-700 active:bg-orange-700 disabled:opacity-50">Simpan</button>
     </div>
   </div>
 </div>

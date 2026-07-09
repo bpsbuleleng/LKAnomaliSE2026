@@ -18,11 +18,18 @@ var ConfigLogic = (function () {
     if (typeof module !== 'undefined' && module.exports) return require('./RuleEvaluator.js');
     return RuleEvaluator;
   }
+  function formulaLib() {
+    if (typeof module !== 'undefined' && module.exports) return require('./Formula.js');
+    return Formula;
+  }
 
   var TYPES = ['text', 'number', 'currency', 'select', 'date', 'textarea', 'kbli'];
   var SEVERITIES = ['error', 'warning'];
   var ALIAS_RE = /^[a-z0-9_]+$/i;
   var RULE_ID_RE = /^[a-z0-9_-]+$/i;
+  // Lebih ketat dari ALIAS_RE: harus diawali huruf/underscore supaya alias
+  // BISA dirujuk sebagai identifier di formula (tokenizer Formula.js).
+  var COMPUTED_ID_RE = /^[a-z_][a-z0-9_]*$/;
 
   function s(v) { return String(v == null ? '' : v).trim(); }
 
@@ -249,6 +256,68 @@ var ConfigLogic = (function () {
     return { ok: true, rules: replaceAt(rules, idx, r), rule: r };
   }
 
+  // ==== VARIABEL HITUNGAN (custom computed field buatan admin) ====
+  // defs = baris custom milik SATU jenis dari tab "Variabel Hitungan"
+  // ([{field_id, label, formula}] — baris override field bawaan SUDAH
+  // disaring caller, lihat DataAccess.splitComputedDefs_). reservedIds =
+  // alias yang tak boleh dipakai (alias pertanyaan jenis itu + computed
+  // bawaan + kata kunci struktural spt 'roster') — dioper caller supaya
+  // fungsi tetap murni. Custom field dihapus BOLEH hard-delete (beda dari
+  // Questions/Rules): nilainya dihitung ulang tiap submit, tidak menyimpan
+  // jawaban historis; rule yang masih merujuknya tinggal tidak cocok lagi.
+
+  function validFormula_(text) {
+    try { formulaLib().compileExpr(text); return { ok: true }; }
+    catch (e) { return { ok: false, detail: String((e && e.message) || e) }; }
+  }
+
+  function applyCreateComputedField(defs, jenis, input, reservedIds) {
+    if (!jenisValid(jenis)) return { ok: false, error: 'INVALID_JENIS' };
+    input = input || {};
+    var id = s(input.field_id).toLowerCase();
+    if (!COMPUTED_ID_RE.test(id)) return { ok: false, error: 'INVALID_ALIAS' };
+    if ((reservedIds || []).indexOf(id) !== -1 ||
+        findIndex(defs, function (d) { return d.field_id === id; }) !== -1) {
+      return { ok: false, error: 'DUPLICATE_ALIAS' };
+    }
+    var label = s(input.label);
+    if (!label) return { ok: false, error: 'INVALID_LABEL' };
+    var formula = s(input.formula);
+    if (!formula) return { ok: false, error: 'INVALID_FORMULA', detail: 'Formula kosong.' };
+    var v = validFormula_(formula);
+    if (!v.ok) return { ok: false, error: 'INVALID_FORMULA', detail: v.detail };
+    var def = { field_id: id, jenis: jenis, label: label, formula: formula };
+    return { ok: true, defs: defs.concat([def]), def: def };
+  }
+
+  // field_id immutable (sama seperti alias pertanyaan) — rename = hapus+buat.
+  function applyUpdateComputedField(defs, fieldId, patch) {
+    var idx = findIndex(defs, function (d) { return d.field_id === fieldId; });
+    if (idx === -1) return { ok: false, error: 'NOT_FOUND' };
+    patch = patch || {};
+    var d = shallow(defs[idx]);
+    if ('label' in patch) {
+      if (!s(patch.label)) return { ok: false, error: 'INVALID_LABEL' };
+      d.label = s(patch.label);
+    }
+    if ('formula' in patch) {
+      var formula = s(patch.formula);
+      if (!formula) return { ok: false, error: 'INVALID_FORMULA', detail: 'Formula kosong.' };
+      var v = validFormula_(formula);
+      if (!v.ok) return { ok: false, error: 'INVALID_FORMULA', detail: v.detail };
+      d.formula = formula;
+    }
+    return { ok: true, defs: replaceAt(defs, idx, d), def: d };
+  }
+
+  function applyDeleteComputedField(defs, fieldId) {
+    var idx = findIndex(defs, function (d) { return d.field_id === fieldId; });
+    if (idx === -1) return { ok: false, error: 'NOT_FOUND' };
+    var copy = defs.slice();
+    var removed = copy.splice(idx, 1)[0];
+    return { ok: true, defs: copy, def: removed };
+  }
+
   return {
     applyCreateQuestion: applyCreateQuestion,
     applyUpdateQuestion: applyUpdateQuestion,
@@ -256,7 +325,10 @@ var ConfigLogic = (function () {
     applyReorderQuestions: applyReorderQuestions,
     applyCreateRule: applyCreateRule,
     applyUpdateRule: applyUpdateRule,
-    applySetRuleActive: applySetRuleActive
+    applySetRuleActive: applySetRuleActive,
+    applyCreateComputedField: applyCreateComputedField,
+    applyUpdateComputedField: applyUpdateComputedField,
+    applyDeleteComputedField: applyDeleteComputedField
   };
 })();
 

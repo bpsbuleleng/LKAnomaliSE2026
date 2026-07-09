@@ -1,27 +1,30 @@
-<div class="bg-white rounded-2xl shadow p-5 space-y-4">
-  <div class="flex items-center justify-between gap-2">
-    <h2 class="text-lg font-bold">Kelola Pertanyaan</h2>
-    <div class="flex gap-2">
-      <button id="aq-reorder" data-testid="aq-reorder" type="button"
-        class="h-11 px-3 rounded-xl border border-slate-300 text-sm font-semibold active:bg-slate-100">Ubah Urutan</button>
-      <button id="aq-add" data-testid="aq-add" type="button"
-        class="h-11 px-4 rounded-xl bg-orange-600 text-white text-sm font-semibold active:bg-orange-700">+ Tambah</button>
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
+  <div class="space-y-1.5">
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <h2 class="text-lg font-bold tracking-tight">Kelola Pertanyaan</h2>
+      <div class="flex gap-2 shrink-0">
+        <button id="aq-reorder" data-testid="aq-reorder" type="button"
+          class="h-11 px-3 rounded-xl border border-slate-300 text-sm font-semibold hover:bg-slate-50 active:bg-slate-100">Ubah Urutan</button>
+        <button id="aq-add" data-testid="aq-add" type="button"
+          class="h-11 px-4 rounded-xl bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 active:bg-orange-700">+ Tambah</button>
+      </div>
     </div>
+    <p id="aq-hint" class="text-xs text-slate-400 leading-relaxed">
+      Nonaktifkan = soft-delete: hilang dari kuesioner baru, jawaban lama tetap
+      tersimpan. Tidak ada hapus permanen.
+    </p>
   </div>
-  <p id="aq-hint" class="text-xs text-slate-400">
-    Nonaktifkan = soft-delete: hilang dari kuesioner baru, jawaban lama tetap
-    tersimpan. Tidak ada hapus permanen.
-  </p>
 
-  <!-- Bar aksi mode Ubah Urutan (muncul hanya saat menata urutan) -->
+  <!-- Bar aksi mode Ubah Urutan (muncul hanya saat menata urutan; sticky di
+       bawah topbar — offset = tinggi topbar 2 baris) -->
   <div id="aq-reorder-bar" data-testid="aq-reorder-bar"
-    class="hidden sticky top-2 z-20 flex items-center justify-between gap-2 rounded-xl border border-orange-200 bg-orange-50 p-2">
+    class="hidden sticky top-[104px] z-20 flex items-center justify-between gap-2 rounded-xl border border-orange-200 bg-orange-50 p-2 shadow-sm">
     <span class="text-xs font-medium text-orange-800 pl-1">Seret ≡ untuk menata, lalu simpan.</span>
     <div class="flex gap-2">
       <button id="aq-reorder-cancel" data-testid="aq-reorder-cancel" type="button"
-        class="h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm font-medium active:bg-slate-100">Batal</button>
+        class="h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 active:bg-slate-100">Batal</button>
       <button id="aq-reorder-save" data-testid="aq-reorder-save" type="button"
-        class="h-10 px-4 rounded-lg bg-orange-600 text-white text-sm font-semibold active:bg-orange-700">Simpan Urutan</button>
+        class="h-10 px-4 rounded-lg bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 active:bg-orange-700">Simpan Urutan</button>
     </div>
   </div>
 
@@ -30,19 +33,19 @@
 
 <!-- Dialog tambah/edit pertanyaan -->
 <div id="aq-dialog" data-testid="aq-dialog"
-  class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
-  <div class="dlg-panel bg-white w-full max-w-md sm:max-w-lg rounded-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
-    <h2 id="aq-dialog-title" class="font-bold text-lg">Tambah Pertanyaan</h2>
+  class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/40">
+  <div class="dlg-panel bg-white w-full max-w-md sm:max-w-lg rounded-t-2xl sm:rounded-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+    <h2 id="aq-dialog-title" class="font-bold text-lg tracking-tight">Tambah Pertanyaan</h2>
     <div>
       <label class="block text-sm font-medium mb-1">Alias (question_id)</label>
-      <input id="aq-alias" data-testid="aq-alias"
+      <input id="aq-alias" data-testid="aq-alias" spellcheck="false" autocomplete="off"
         class="w-full h-12 px-3 text-base rounded-xl border border-slate-300 font-mono disabled:bg-slate-100 disabled:text-slate-500">
       <p class="text-xs text-slate-400 mt-1">Huruf kecil/angka/underscore, mis. b4r99. Tidak bisa diubah setelah dibuat.</p>
     </div>
     <div>
       <label class="block text-sm font-medium mb-1">Label pertanyaan</label>
-      <input id="aq-label" data-testid="aq-label"
-        class="w-full h-12 px-3 text-base rounded-xl border border-slate-300">
+      <textarea id="aq-label" data-testid="aq-label" rows="1"
+        class="auto-grow w-full px-3 py-3 text-base rounded-xl border border-slate-300"></textarea>
     </div>
     <div>
       <label class="block text-sm font-medium mb-1">Tipe</label>
@@ -63,19 +66,19 @@
         class="w-full px-3 py-2 text-base rounded-xl border border-slate-300 font-mono"></textarea>
     </div>
     <label class="flex items-center gap-2 text-sm font-medium">
-      <input id="aq-required" data-testid="aq-required" type="checkbox" class="w-5 h-5"> Wajib diisi (required)
+      <input id="aq-required" data-testid="aq-required" type="checkbox" class="w-5 h-5 accent-orange-600"> Wajib diisi (required)
     </label>
     <div>
       <label class="block text-sm font-medium mb-1">Teks bantuan (opsional)</label>
-      <input id="aq-help" data-testid="aq-help"
-        class="w-full h-12 px-3 text-base rounded-xl border border-slate-300">
+      <textarea id="aq-help" data-testid="aq-help" rows="1"
+        class="auto-grow w-full px-3 py-3 text-base rounded-xl border border-slate-300"></textarea>
     </div>
     <p id="aq-error" data-testid="aq-error" class="hidden text-sm text-red-600"></p>
     <div class="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
       <button id="aq-cancel" data-testid="aq-cancel" type="button"
-        class="h-12 sm:px-6 rounded-xl border border-slate-300 font-medium active:bg-slate-50">Batal</button>
+        class="h-12 sm:px-6 rounded-xl border border-slate-300 font-medium hover:bg-slate-50 active:bg-slate-100">Batal</button>
       <button id="aq-save" data-testid="aq-save" type="button"
-        class="h-12 sm:px-6 rounded-xl bg-orange-600 text-white font-semibold active:bg-orange-700 disabled:opacity-50">Simpan</button>
+        class="h-12 sm:px-6 rounded-xl bg-orange-600 text-white font-semibold hover:bg-orange-700 active:bg-orange-700 disabled:opacity-50">Simpan</button>
     </div>
   </div>
 </div>
