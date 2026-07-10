@@ -51,7 +51,7 @@ Spreadsheet acuan: **"Database LK Anomali SE2026"** (ID `1-AaXOXyy83Txn5xKxN9HpD
 Computed field (`ComputedFields.js`) dibagi 3 kelompok, JANGAN dicampur:
 
 1. **Formula-editable (bawaan)** — aritmetika FLAT (cuma `+ - * /` antar-field/angka, tanpa akses roster/tabel eksternal). Didefinisikan sebagai string di `EDITABLE_DEFAULTS` (bukan kode JS bebas), dievaluasi lewat parser AMAN yang sama dengan rule (`Formula.compileExpr`/`evaluateExpr` — TANPA eval, hanya tokenizer + recursive-descent). Admin boleh menimpa rumusnya lewat halaman config ("Variabel Hitungan") — override tersimpan di tab `Variabel Hitungan` (skema no. 7). Daftarnya: `keluarga.b4r16`, `keluarga.luas_per_kapita`, `usaha.r26_total`, `usaha.pangsa_biaya_produksi`, `usaha.rasio_pendapatan_biaya`, `usaha.rasio_ntb`. Id & label tetap dari kode — hanya formulanya yang bisa diubah/reset.
-2. **Tetap di kode** — butuh primitif di luar grammar aritmetika flat: agregasi roster (`b1r9`, `b3r18c`, `jumlah_anggota_keluarga`, `jumlah_meteran_listrik`), ekstraksi/lookup string (`r13f`, `r13h`), atau lookup tabel eksternal (`batas_rasio_ntb`, lihat skema no. 6). TIDAK bisa diedit dari UI — ini keputusan arsitektur sadar (CLAUDE.md "GAP ARSITEKTUR": hindari bahasa query generik), bukan keterbatasan sementara.
+2. **Tetap di kode** — butuh primitif di luar grammar aritmetika flat: agregasi roster (`b1r9`, `b3r18c`, `jumlah_anggota_keluarga`, `jumlah_meteran_listrik`), perbandingan ANTAR-BARIS roster tertentu (`k1_pasutri_tidak_kawin` — bandingkan roster index 0 vs index 1, dipakai K1, lihat "Progress terjemahan" K1), ekstraksi/lookup string (`r13f`, `r13h`), atau lookup tabel eksternal (`batas_rasio_ntb`, lihat skema no. 6). TIDAK bisa diedit dari UI — ini keputusan arsitektur sadar (CLAUDE.md "GAP ARSITEKTUR": hindari bahasa query generik), bukan keterbatasan sementara.
 3. **Custom buatan admin (BARU 2026-07-09, CRUD penuh)** — variabel TAMBAHAN yang admin buat sendiri dari halaman config: alias (`^[a-z_][a-z0-9_]*$`, tidak boleh menabrak alias pertanyaan jenis itu / computed bawaan / `roster`; immutable setelah dibuat), label, dan formula (grammar aritmetika flat yang SAMA dengan kelompok 1). Tersimpan di tab `Variabel Hitungan` dengan `label` terisi; dievaluasi saat submit SETELAH pipeline bawaan, urut baris tab (custom boleh merujuk jawaban kuesioner, computed bawaan, dan custom yang barisnya lebih dulu — merujuk yang belakangan dapat 0). Otomatis muncul di dropdown field rule (`getRuleFieldOptions`) & preview. BOLEH hard-delete (beda dari Questions/Rules — nilainya dihitung ulang tiap submit, tidak menyimpan jawaban historis); UI memperingatkan rule aktif yang masih merujuknya (rule TIDAK error setelah hapus, hanya tak pernah cocok).
 
 `DataAccess.getComputedFields(jenis)` (read-only, unprivileged) mengembalikan SEMUA field ketiga kelompok (custom bertanda `custom: true`) — dipakai halaman admin supaya tidak "buta" terhadap variabel yang dipakai rule tapi tidak muncul di kuesioner. Fungsi privileged (semua cek `adminPassword` per panggilan): `updateComputedFieldFormula(adminPassword, jenis, fieldId, formula)` untuk kelompok 1 (menolak non-editable `NOT_EDITABLE`, formula rusak `INVALID_FORMULA`; `formula=''` = reset ke default), dan `createComputedField` / `updateComputedField` / `deleteComputedField` untuk kelompok 3 (logic murni di `ConfigLogic.applyCreate/Update/DeleteComputedField`, di-unit-test Node). Override/custom yang lolos validasi saat simpan TAPI entah kenapa gagal dievaluasi saat submit (mis. tab diedit manual di luar UI) **fallback diam-diam** (override → default; custom → null) — formula admin TIDAK PERNAH boleh menggagalkan submit PML.
@@ -100,16 +100,18 @@ Metodenya: tiap anomali di-cross-check field yang direferensikan `Identifikasi`-
 
 **Sudah bisa diterjemahkan bersih (field-nya semua ada):**
 
-`K1` (Status Cerai/Belum Kawin):
+`K1` (Status Cerai/Belum Kawin) — **REVISI 2026-07-10 (keputusan user)**: bukan cek independen per anggota (b1r8_n in [1,2]) seperti versi awal, tapi cek RELASI spesifik posisi ke-1 & ke-2 di roster. Tak bisa dinyatakan lewat `roster_any`/`roster_all`/`roster_count` biasa (butuh bandingkan 2 baris roster tertentu satu sama lain, bukan cuma cek per-baris) — jadi dihitung sebagai computed field baru `k1_pasutri_tidak_kawin` (`ComputedFields.js`, kelompok "tetap di kode", lihat fungsi `k1PasutriTidakKawin`), rule-nya jadi leaf datar:
 
 ```json
-{ "roster_any": "anggota_keluarga", "condition": { "all": [
-  { "field": "b1r8_n", "op": "in", "value": [1, 2] },
-  { "field": "b1r11_n", "op": "in", "value": [1, 3, 4] }
-] } }
+{ "field": "k1_pasutri_tidak_kawin", "op": "==", "value": 1 }
 ```
 
-Cek: ada anggota berstatus kepala keluarga ATAU pasangan (b1r8_n = 1/2) yang status kawinnya bukan "kawin" (b1r11_n = 1/3/4).
+Logic `k1_pasutri_tidak_kawin` (roster index 0 = anggota ke-1, index 1 = anggota ke-2):
+- Anggota ke-1 & ke-2 dianggap PASUTRI hanya kalau ke-1 berkode Kepala Keluarga (b1r8_n=1) DAN ke-2 berkode Istri/Suami (b1r8_n=2) — kalau bukan pasutri (ke-2 = Anak b1r8_n=3, atau Lainnya/famili b1r8_n=9), field ini SELALU 0 (status kawin ke-2 tidak diperiksa sama sekali; anak/famili boleh belum kawin (1) atau cerai (3/4) — bukan anomali).
+- Kalau memang pasutri: anomali (nilai 1) HANYA jika salah satu atau keduanya berstatus kawin bukan "Kawin" (b1r11_n ≠ 2). Status kawin kosong/belum diisi → 0 (data belum lengkap ≠ anomali, konsisten semantik evaluator).
+- Roster < 2 baris → 0 (pasutri tidak berlaku).
+
+Rule K1 lama (roster_any generik) DIGANTI, bukan ditambah — lihat commit terkait untuk histori bentuk sebelumnya kalau perlu dibandingkan.
 
 `K7` (Jumlah Anggota Keluarga Ekstrem):
 

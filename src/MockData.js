@@ -271,8 +271,8 @@ var MockData = {
     { rule_id: 'U9', jenis: 'usaha', severity: 'warning', message: 'Rasio NTB Tinggi: (pendapatan − total biaya) ÷ pendapatan melebihi batas rasio NTB SE2016 untuk KBLI usaha ini', active: true,
       when: { field: 'rasio_ntb', op: '>', field2: 'batas_rasio_ntb' } },
     // ---- KELUARGA ----
-    { rule_id: 'K1', jenis: 'keluarga', severity: 'error', message: 'Status Cerai/Belum Kawin: kepala keluarga/pasangan berstatus bukan kawin', active: true,
-      when: { roster_any: 'anggota_keluarga', condition: { all: [{ field: 'b1r8_n', op: 'in', value: [1, 2] }, { field: 'b1r11_n', op: 'in', value: [1, 3, 4] }] } } },
+    { rule_id: 'K1', jenis: 'keluarga', severity: 'error', message: 'Status Cerai/Belum Kawin: pasangan suami/istri (anggota ke-1 & ke-2) berstatus bukan kawin', active: true,
+      when: { field: 'k1_pasutri_tidak_kawin', op: '==', value: 1 } },
     { rule_id: 'K2', jenis: 'keluarga', severity: 'error', message: 'Kepala Keluarga <10 Th di Rumah Sendiri: umur kepala keluarga di bawah 10 tahun dengan rumah milik sendiri', active: true,
       when: { all: [{ field: 'b1r13_1', op: '<', value: 10 }, { field: 'b4r3a', op: '==', value: 1 }] } },
     { rule_id: 'K3', jenis: 'keluarga', severity: 'warning', message: 'Semua Anggota Keluarga Disabilitas (lebih dari 1 anggota)', active: true,

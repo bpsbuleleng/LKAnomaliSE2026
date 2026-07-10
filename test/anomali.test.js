@@ -33,7 +33,7 @@ test('cakupan strategi: 15 rule aktif masing-masing punya fixture ISOLASI + ada 
   const isolated = TEST_RECORDS.filter((r) => r.expect.length === 1).map((r) => r.expect[0]).sort();
   assert.deepEqual(isolated, activeIds); // tiap rule diisolasi tepat 1 fixture
 
-  assert.equal(TEST_RECORDS.filter((r) => r.expect.length === 0).length, 2); // bersih per jenis
+  assert.equal(TEST_RECORDS.filter((r) => r.expect.length === 0).length, 3); // 2 bersih per jenis + 1 edge-case K1 (anak cerai bukan anomali)
   assert.equal(TEST_RECORDS.filter((r) => r.expect.length > 1).length >= 1, true); // ≥1 multi-trigger
   assert.equal(TEST_RECORDS.length >= 19, true);
 });

@@ -287,11 +287,11 @@ test('rule kompleks lama (roster/bersarang) dibuka sebagai editor JSON otomatis'
   const fa = await adminLogin(page);
   await resetAll(fa);
   await fa.getByTestId('jenis-tab-keluarga').click();
-  await expect(fa.getByTestId('ar-row-K1')).toBeVisible();
-  // K1 memakai roster_any → tak bisa di builder → editor JSON muncul
-  await fa.getByTestId('ar-edit-K1').click();
+  await expect(fa.getByTestId('ar-row-K3')).toBeVisible();
+  // K3 memakai roster_all bersarang di dalam all[] → tak bisa di builder → editor JSON muncul
+  await fa.getByTestId('ar-edit-K3').click();
   await expect(fa.getByTestId('ar-json')).toBeVisible();
-  await expect(fa.getByTestId('ar-json')).toHaveValue(/roster_any/); // isi textarea di .value
+  await expect(fa.getByTestId('ar-json')).toHaveValue(/roster_all/); // isi textarea di .value
   // builder (daftar kondisi) tersembunyi untuk rule kompleks
   await expect(fa.getByTestId('ar-cond-list')).toBeHidden();
 });

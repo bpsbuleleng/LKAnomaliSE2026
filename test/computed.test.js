@@ -51,6 +51,63 @@ test('luas_per_kapita: pakai b1r9 hasil hitung; b1r9=0 → null (guard bagi 0)',
   assert.equal(keluarga({ b4r5: 80 }).luas_per_kapita, null);
 });
 
+// ==== k1_pasutri_tidak_kawin: anggota ke-1 & ke-2 (index 0 & 1) sbg pasutri ====
+
+test('k1_pasutri_tidak_kawin: pos1 KK & pos2 istri/suami keduanya kawin → 0', () => {
+  const out = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 2, b1r11_n: 2 }
+  ] } });
+  assert.equal(out.k1_pasutri_tidak_kawin, 0);
+});
+
+test('k1_pasutri_tidak_kawin: pasutri tapi pasangan berstatus cerai → 1', () => {
+  const out = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 2, b1r11_n: 3 }
+  ] } });
+  assert.equal(out.k1_pasutri_tidak_kawin, 1);
+});
+
+test('k1_pasutri_tidak_kawin: pasutri tapi KK sendiri belum kawin → 1', () => {
+  const out = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 1 }, { b1r8_n: 2, b1r11_n: 2 }
+  ] } });
+  assert.equal(out.k1_pasutri_tidak_kawin, 1);
+});
+
+test('k1_pasutri_tidak_kawin: pos2 anak (bukan istri/suami) boleh cerai/belum kawin → 0', () => {
+  const cerai = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 3, b1r11_n: 4 }
+  ] } });
+  assert.equal(cerai.k1_pasutri_tidak_kawin, 0);
+  const belumKawin = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 3, b1r11_n: 1 }
+  ] } });
+  assert.equal(belumKawin.k1_pasutri_tidak_kawin, 0);
+});
+
+test('k1_pasutri_tidak_kawin: pos2 famili/lainnya boleh belum kawin atau cerai → 0', () => {
+  const out = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 9, b1r11_n: 1 }
+  ] } });
+  assert.equal(out.k1_pasutri_tidak_kawin, 0);
+});
+
+test('k1_pasutri_tidak_kawin: status kawin belum diisi → 0 (data belum lengkap ≠ anomali)', () => {
+  const out = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 2 }
+  ] } });
+  assert.equal(out.k1_pasutri_tidak_kawin, 0);
+});
+
+test('k1_pasutri_tidak_kawin: roster < 2 baris atau pos1 bukan Kepala Keluarga → 0', () => {
+  assert.equal(keluarga({ roster: { anggota_keluarga: [{ b1r8_n: 1, b1r11_n: 1 }] } }).k1_pasutri_tidak_kawin, 0);
+  assert.equal(keluarga({}).k1_pasutri_tidak_kawin, 0);
+  const bukanKK = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 3, b1r11_n: 1 }, { b1r8_n: 2, b1r11_n: 3 }
+  ] } });
+  assert.equal(bukanKK.k1_pasutri_tidak_kawin, 0);
+});
+
 // ==== r13f (kategori 1 digit dari kode KBLI r13g) ====
 
 test('r13f: digit pertama kode KBLI 5 digit; kosong/belum diisi → ""', () => {

@@ -76,6 +76,12 @@ var TEST_RECORDS = [
   make('k1-pasangan-cerai', 'keluarga', ['K1'], keluargaBase, function (a) {
     a.roster.anggota_keluarga[1].b1r11_n = 3; // istri cerai hidup
   }),
+  make('k1-anak-cerai-bukan-anomali', 'keluarga', [], keluargaBase, function (a) {
+    // anggota ke-2 (index 1) diganti jadi anak (bukan istri/suami) berstatus
+    // cerai mati — bukan pasutri, status kawinnya TIDAK diperiksa K1.
+    a.roster.anggota_keluarga[1].b1r8_n = 3;
+    a.roster.anggota_keluarga[1].b1r11_n = 4;
+  }),
   make('k2-kk-anak-rumah-sendiri', 'keluarga', ['K2'], keluargaBase, function (a) {
     a.b1r13_1 = 8; // umur KK < 10, b4r3a tetap 1 (milik sendiri)
   }),

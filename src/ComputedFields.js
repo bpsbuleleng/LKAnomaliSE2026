@@ -50,6 +50,8 @@ var ComputedFields = (function () {
 
   function eqCode(v, code) { return Number(v) === code; }
 
+  function isMissing(v) { return v === undefined || v === null || v === ''; }
+
   // jumlah_<roster> = banyak BARIS roster grup itu, apa pun isinya — beda
   // dari b1r9 yang hanya menghitung kode keberadaan 1/5. Client (DraftLogic)
   // memelihara nilai yang sama live saat baris ditambah/dihapus; nilai di
@@ -71,6 +73,23 @@ var ComputedFields = (function () {
     return rows(a, 'anggota_keluarga').reduce(function (sum, m) {
       return sum + num(m.b3r18a_n) + num(m.b3r18b_n) + num(m.b3r18c_n);
     }, 0);
+  }
+
+  // k1_pasutri_tidak_kawin = 1 kalau anggota ke-1 (index 0, seharusnya
+  // kepala keluarga b1r8_n=1) & ke-2 (index 1) tercatat sebagai pasangan
+  // suami-istri (anggota ke-2 berkode Istri/Suami, b1r8_n=2) TAPI salah satu
+  // atau keduanya berstatus kawin BUKAN "Kawin" (b1r11_n≠2). Relasi lain di
+  // posisi ke-2 (mis. Anak b1r8_n=3, atau Lainnya/famili b1r8_n=9) TIDAK
+  // diperiksa status kawinnya sama sekali — anak/famili boleh belum kawin
+  // atau cerai, itu bukan indikasi anomali (K1). Status kawin kosong (belum
+  // diisi) juga TIDAK ditandai (data belum lengkap ≠ anomali).
+  function k1PasutriTidakKawin(a) {
+    var r = rows(a, 'anggota_keluarga');
+    if (r.length < 2) return 0;
+    var kk = r[0], pasangan = r[1];
+    if (!eqCode(kk.b1r8_n, 1) || !eqCode(pasangan.b1r8_n, 2)) return 0;
+    if (isMissing(kk.b1r11_n) || isMissing(pasangan.b1r11_n)) return 0;
+    return (eqCode(kk.b1r11_n, 2) && eqCode(pasangan.b1r11_n, 2)) ? 0 : 1;
   }
 
   // r13f = kategori 1 digit, digit PERTAMA dari kode KBLI 5 digit r13g —
@@ -192,6 +211,8 @@ var ComputedFields = (function () {
         { editable: false, note: 'Count baris roster anggota_keluarga dengan b1r9_n = 1 (tinggal) atau 5 (anggota baru) — agregasi roster, tetap di kode.' }],
       ['b3r18c', b3r18c, 'Total pendapatan sebulan (hitungan)',
         { editable: false, note: 'SUM b3r18a_n + b3r18b_n + b3r18c_n di SEMUA baris roster anggota_keluarga — agregasi roster, tetap di kode.' }],
+      ['k1_pasutri_tidak_kawin', k1PasutriTidakKawin, 'Pasangan suami-istri (anggota ke-1 & ke-2) berstatus bukan kawin (hitungan)',
+        { editable: false, note: 'Bandingkan hubungan & status kawin baris roster anggota_keluarga index 0 & 1 — perbandingan antar-baris, tetap di kode (dipakai K1).' }],
       ['b4r16', formulaStep('keluarga', 'b4r16'), 'Total pengeluaran sebulan (hitungan)', { editable: true }],
       ['luas_per_kapita', formulaStep('keluarga', 'luas_per_kapita'), 'Luas lantai per kapita m² (hitungan)', { editable: true }]
     ],
