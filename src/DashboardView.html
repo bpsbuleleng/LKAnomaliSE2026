@@ -1,10 +1,18 @@
 <section id="view-dashboard" data-testid="dashboard-view" class="view hidden max-w-md lg:max-w-4xl mx-auto px-3 py-4 sm:px-4 sm:py-6">
-  <div class="flex items-center justify-between mb-1">
-    <h1 class="text-lg font-bold">Dashboard</h1>
-    <button id="logout-btn" data-testid="logout-btn" type="button"
-      class="h-11 px-4 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 active:bg-slate-50">
-      Keluar
-    </button>
+  <div class="flex items-center justify-between gap-2 mb-1">
+    <!-- "Lembar Kerja" (bukan "Dashboard") — sebutan Dashboard sekarang milik
+         halaman awal visualisasi (view-viz). -->
+    <h1 class="text-lg font-bold">Lembar Kerja</h1>
+    <div class="flex items-center gap-1.5">
+      <button id="open-viz-btn" data-testid="open-viz-btn" type="button"
+        class="h-11 px-4 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 active:bg-slate-50">
+        Dashboard
+      </button>
+      <button id="logout-btn" data-testid="logout-btn" type="button"
+        class="h-11 px-4 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 active:bg-slate-50">
+        Keluar
+      </button>
+    </div>
   </div>
   <p id="dashboard-greeting" data-testid="dashboard-greeting" class="text-sm text-slate-500 mb-3"></p>
 

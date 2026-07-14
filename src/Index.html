@@ -8,6 +8,7 @@
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
+  <?!= include('VizView'); ?>
   <?!= include('LoginView'); ?>
   <?!= include('DashboardView'); ?>
   <?!= include('RecordView'); ?>
@@ -31,6 +32,7 @@
   <?!= include('SearchableSelect'); ?>
   <?!= include('DraftLogic'); ?>
   <?!= include('DraftStore'); ?>
+  <?!= include('VizLogic'); ?>
 
   <script>
     // State aplikasi — identitas PML & cache hidup di memory selama sesi
@@ -101,6 +103,9 @@
     function clearSession() {
       try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
     }
+    // Pulihkan IDENTITAS saja (tanpa auto-masuk Lembar Kerja) — halaman awal
+    // sekarang selalu dashboard visualisasi; tombol "Lembar Kerja" di sana
+    // yang membawa PML ber-sesi langsung masuk tanpa login ulang.
     function restoreSession() {
       var raw;
       try { raw = localStorage.getItem(SESSION_KEY); } catch (e) { return false; }
@@ -109,7 +114,6 @@
       try { pml = JSON.parse(raw); } catch (e) { return false; }
       if (!pml || !pml.email) return false;
       App.state.pml = pml;
-      enterDashboard();
       return true;
     }
 
@@ -1369,6 +1373,761 @@
         });
     });
 
+    // ==== DASHBOARD VISUALISASI (halaman awal — markup di VizView, logic
+    // agregasi murni di VizLogic; di sini hanya render & wiring event) ====
+
+    var Viz = {
+      data: null,      // { records, questions: {usaha, keluarga} } dari getDashboardData
+      loaded: false,
+      loading: false,
+      jenis: 'usaha',
+      // answers = filter nilai jawaban hasil klik bar/bin chart (chips);
+      // tiap item punya `label` untuk teks chip — identitas toggle-nya
+      // VizLogic.sameAnswerFilter (label diabaikan).
+      filters: { kdkec: '', kddesa: '', kdsls: '', pml: '', ppl: '', includeDraft: false, answers: [] },
+      openTab: {},     // question_id -> dim tabulasi yang panelnya terbuka
+      kbliFetching: false // guard fetch daftar judul KBLI (sekali per sesi)
+    };
+
+    function vizFilters() {
+      var f = Viz.filters;
+      return {
+        jenis: Viz.jenis, includeDraft: f.includeDraft,
+        kdkec: f.kdkec, kddesa: f.kddesa, kdsls: f.kdsls, pml: f.pml, ppl: f.ppl,
+        answers: f.answers
+      };
+    }
+
+    // Crossfilter: kartu TIDAK disaring oleh filter nilai pada pertanyaannya
+    // SENDIRI (eq/empty/range) supaya opsi lain tetap terlihat & bisa
+    // di-toggle. Kekecualian: filter kategori KBLI (kind 'kat') tetap
+    // berlaku di kartunya — dia memang mempersempit fokus kartu itu.
+    function cardRecordsFor(q) {
+      var f = vizFilters();
+      f.answers = (f.answers || []).filter(function (a) {
+        return a.qid !== q.question_id || a.kind === 'kat';
+      });
+      return VizLogic.filterRecords(Viz.data.records, f);
+    }
+
+    function isAnswerFilterActive(flt) {
+      return (Viz.filters.answers || []).some(function (a) {
+        return VizLogic.sameAnswerFilter(a, flt);
+      });
+    }
+    function toggleAnswerFilter(flt) {
+      var arr = Viz.filters.answers;
+      for (var i = 0; i < arr.length; i++) {
+        if (VizLogic.sameAnswerFilter(arr[i], flt)) {
+          arr.splice(i, 1);
+          renderViz();
+          return;
+        }
+      }
+      arr.push(flt);
+      renderViz();
+    }
+
+    function renderAnswerChips() {
+      var box = el('viz-answer-chips');
+      var arr = Viz.filters.answers || [];
+      box.innerHTML = '';
+      box.classList.toggle('hidden', !arr.length);
+      if (!arr.length) return;
+      arr.forEach(function (flt) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.setAttribute('data-testid', 'viz-chip');
+        chip.title = 'Hapus filter ini';
+        chip.className = 'inline-flex items-center gap-1.5 max-w-full h-8 px-2.5 rounded-full bg-orange-100 text-orange-800 text-xs font-medium active:bg-orange-200';
+        var t = document.createElement('span');
+        t.className = 'truncate max-w-[16rem]';
+        t.textContent = flt.label || flt.qid;
+        var x = document.createElement('span');
+        x.className = 'font-bold shrink-0';
+        x.textContent = '×';
+        chip.appendChild(t);
+        chip.appendChild(x);
+        chip.addEventListener('click', function () { toggleAnswerFilter(flt); });
+        box.appendChild(chip);
+      });
+      var clear = document.createElement('button');
+      clear.type = 'button';
+      clear.setAttribute('data-testid', 'viz-chip-clear');
+      clear.className = 'h-8 px-2 text-xs font-medium text-slate-500 active:text-orange-700';
+      clear.textContent = 'Hapus semua';
+      clear.addEventListener('click', function () {
+        Viz.filters.answers = [];
+        renderViz();
+      });
+      box.appendChild(clear);
+    }
+
+    function updateVizAuthButton() {
+      el('goto-app-btn').textContent = App.state.pml ? 'Lembar Kerja' : 'Masuk';
+    }
+
+    function enterViz() {
+      updateVizAuthButton();
+      showView('viz');
+      // Selalu refetch saat masuk (data bisa berubah oleh PML lain / submit
+      // barusan); render lama ditahan redup selama refetch — tanpa skeleton.
+      if (!Viz.loading) loadVizData();
+    }
+
+    function loadVizData() {
+      Viz.loading = true;
+      el('viz-error').classList.add('hidden');
+      if (!Viz.loaded) {
+        el('viz-loading').classList.remove('hidden');
+        el('viz-tiles').innerHTML = '';
+        el('viz-cards').innerHTML = '';
+      } else {
+        el('viz-cards').classList.add('busy-dim');
+      }
+      gsRun('getDashboardData')
+        .then(function (res) {
+          vizLoadDone();
+          if (!(res && res.ok)) { showVizError(); return; }
+          Viz.data = {
+            records: res.records || [],
+            questions: res.questions || { usaha: [], keluarga: [] }
+          };
+          Viz.loaded = true;
+          renderViz();
+        })
+        .catch(function () {
+          vizLoadDone();
+          showVizError();
+        });
+    }
+    function vizLoadDone() {
+      Viz.loading = false;
+      el('viz-loading').classList.add('hidden');
+      el('viz-cards').classList.remove('busy-dim');
+    }
+    function showVizError() {
+      // Refetch gagal saat data lama masih tampil → cukup toast, frame bertahan.
+      if (Viz.loaded) { UiFx.toast('Gagal memuat ulang data dashboard.'); return; }
+      el('viz-error').classList.remove('hidden');
+    }
+
+    function vizFmtNum(n, dec) {
+      if (n === null || n === undefined || !isFinite(n)) return '—';
+      return Number(n).toLocaleString('id-ID', { maximumFractionDigits: dec === undefined ? 2 : dec });
+    }
+    function vizPct(part, total) { return total > 0 ? Math.round((part / total) * 100) : 0; }
+
+    // ---- filter row ----
+
+    function vizRebuildSelect(id, list, keep, allLabel, labelFn) {
+      var sel = el(id);
+      sel.innerHTML = '';
+      sel.appendChild(new Option(allLabel, ''));
+      list.forEach(function (o) { sel.appendChild(new Option(labelFn(o), o.kode)); });
+      if (keep && list.some(function (o) { return o.kode === keep; })) sel.value = keep;
+      return sel.value; // '' kalau pilihan lama sudah tidak tersedia
+    }
+    function vizWilayahLabel(o) { return '[' + o.kode + '] ' + o.nama; }
+    function vizNamaLabel(o) { return o.nama; }
+
+    // Opsi tiap select diisi dari record se-scope dan bertingkat. Kalau nilai
+    // terpilih hilang dari opsi (mis. setelah muat ulang data), nilai itu +
+    // turunannya direset lalu opsi dihitung ulang supaya tidak menyaring
+    // dengan nilai hantu.
+    function renderVizFilters() {
+      var f = Viz.filters;
+      var opts = VizLogic.filterOptions(Viz.data.records, vizFilters());
+      var kec = vizRebuildSelect('viz-filter-kec', opts.kec, f.kdkec, 'Semua Kecamatan', vizWilayahLabel);
+      if (kec !== f.kdkec) {
+        f.kdkec = kec; f.kddesa = ''; f.kdsls = '';
+        opts = VizLogic.filterOptions(Viz.data.records, vizFilters());
+      }
+      var desa = vizRebuildSelect('viz-filter-desa', opts.desa, f.kddesa, 'Semua Desa', vizWilayahLabel);
+      if (desa !== f.kddesa) {
+        f.kddesa = desa; f.kdsls = '';
+        opts = VizLogic.filterOptions(Viz.data.records, vizFilters());
+      }
+      var sls = vizRebuildSelect('viz-filter-sls', opts.sls, f.kdsls, 'Semua SLS', vizWilayahLabel);
+      if (sls !== f.kdsls) {
+        f.kdsls = sls;
+        opts = VizLogic.filterOptions(Viz.data.records, vizFilters());
+      }
+      f.pml = vizRebuildSelect('viz-filter-pml', opts.pml, f.pml, 'Semua PML', vizNamaLabel);
+      f.ppl = vizRebuildSelect('viz-filter-ppl', opts.ppl, f.ppl, 'Semua PPL', vizNamaLabel);
+      el('viz-include-draft').checked = f.includeDraft;
+    }
+
+    // ---- render utama ----
+
+    function renderViz() {
+      if (!Viz.loaded) return;
+      renderVizFilters();
+      renderAnswerChips();
+      var slice = VizLogic.filterRecords(Viz.data.records, vizFilters());
+      renderVizTiles();
+      var cards = el('viz-cards');
+      cards.innerHTML = '';
+      el('viz-empty').classList.toggle('hidden', slice.length > 0);
+      if (!slice.length) return;
+      (Viz.data.questions[Viz.jenis] || []).forEach(function (q) {
+        cards.appendChild(vizCard(q));
+      });
+      UiFx.staggerIn(cards.children, 20);
+    }
+
+    function vizTile(label, value, testid) {
+      var d = document.createElement('div');
+      d.className = 'bg-white rounded-xl shadow-sm p-3';
+      var l = document.createElement('p');
+      l.className = 'text-xs text-slate-500';
+      l.textContent = label;
+      var v = document.createElement('p');
+      v.className = 'text-2xl font-semibold text-slate-800 mt-0.5';
+      v.textContent = value;
+      v.setAttribute('data-testid', testid);
+      d.appendChild(l);
+      d.appendChild(v);
+      return d;
+    }
+    function renderVizTiles() {
+      var s = VizLogic.summary(Viz.data.records, vizFilters());
+      var t = el('viz-tiles');
+      t.innerHTML = '';
+      t.appendChild(vizTile('Record ' + Viz.jenis, vizFmtNum(s.total, 0), 'viz-tile-total'));
+      t.appendChild(vizTile('Submitted', vizFmtNum(s.submitted, 0), 'viz-tile-submitted'));
+      t.appendChild(vizTile('Draft', vizFmtNum(s.draft, 0), 'viz-tile-draft'));
+      t.appendChild(vizTile('Anomali (submitted)', vizFmtNum(s.anomali, 0), 'viz-tile-anomali'));
+    }
+
+    // ---- kartu per butir pertanyaan ----
+
+    function vizCard(q) {
+      // Slice khusus kartu (crossfilter, lihat cardRecordsFor).
+      var slice = cardRecordsFor(q);
+      var card = document.createElement('div');
+      // flex-col + mt-auto di seksi tabulasi: kartu sebaris (grid stretch)
+      // sama tinggi dengan tombol tabulasi rata di dasar kartu.
+      card.className = 'bg-white rounded-xl shadow-sm p-4 flex flex-col';
+      card.setAttribute('data-testid', 'viz-card');
+      card.setAttribute('data-qid', q.question_id);
+
+      var head = document.createElement('p');
+      head.className = 'text-sm font-semibold leading-snug';
+      var code = document.createElement('span');
+      code.className = 'font-mono font-normal text-xs text-slate-400 mr-1.5 select-all';
+      code.textContent = q.question_id;
+      head.appendChild(code);
+      head.appendChild(document.createTextNode(q.label));
+      card.appendChild(head);
+
+      var vals = VizLogic.questionValues(slice, q);
+      var unit = q.roster_group
+        ? (q.roster_group === 'anggota_keluarga' ? 'baris anggota' : 'baris meteran')
+        : 'record';
+      var sub = document.createElement('p');
+      sub.className = 'text-xs text-slate-400 mt-0.5 mb-2';
+      sub.textContent = vizFmtNum(vals.values.length, 0) + ' terisi · ' +
+        vizFmtNum(vals.empty, 0) + ' kosong · basis ' + vizFmtNum(vals.rows, 0) + ' ' + unit;
+      card.appendChild(sub);
+
+      if (q.type === 'kbli') card.appendChild(vizKbliKategoriRow(q));
+
+      // Area chart ber-max-height (scroll ke dalam) supaya daftar opsi panjang
+      // tidak memanjangkan kartu — tinggi kartu sebaris tetap seragam.
+      var body = document.createElement('div');
+      body.className = 'viz-chart-scroll mb-3';
+      if (!vals.rows) {
+        var none = document.createElement('p');
+        none.className = 'text-xs text-slate-400 py-2';
+        none.textContent = 'Belum ada data untuk butir ini.';
+        body.appendChild(none);
+      } else {
+        var kind = VizLogic.chartKind(q);
+        body.appendChild(
+          kind === 'categorical' ? vizCategoricalChart(q, vals)
+            : kind === 'numeric' ? vizNumericChart(q, vals)
+              : vizTextChart(q, vals)
+        );
+      }
+      card.appendChild(body);
+
+      card.appendChild(vizTabSection(q, slice));
+      return card;
+    }
+
+    // Baris kontrol kategori KBLI (khusus kartu r13g): dropdown huruf A-U
+    // yang ada di data. Efeknya = filter global kind 'kat' (muncul sebagai
+    // chip juga), tapi kontrolnya memang hanya relevan/ditaruh di kartu ini.
+    function vizKbliKategoriRow(q) {
+      // Opsi kategori dihitung TANPA filter kat aktif supaya daftarnya tidak
+      // menciut jadi satu huruf begitu salah satu dipilih.
+      var f = vizFilters();
+      f.answers = (f.answers || []).filter(function (a) { return a.qid !== q.question_id; });
+      var vals = VizLogic.questionValues(VizLogic.filterRecords(Viz.data.records, f), q);
+      var counts = {};
+      vals.values.forEach(function (v) {
+        var k = VizLogic.kbliKategori(v);
+        if (k) counts[k] = (counts[k] || 0) + 1;
+      });
+      var current = '';
+      (Viz.filters.answers || []).forEach(function (a) {
+        if (a.qid === q.question_id && a.kind === 'kat') current = String(a.value);
+      });
+
+      var row = document.createElement('div');
+      row.className = 'flex items-center gap-2 mb-2';
+      var lbl = document.createElement('label');
+      lbl.className = 'text-xs text-slate-500 shrink-0';
+      lbl.textContent = 'Kategori KBLI:';
+      var sel = document.createElement('select');
+      sel.setAttribute('data-testid', 'viz-kbli-kategori');
+      sel.className = 'h-9 px-2 text-xs rounded-lg border border-slate-300 bg-white min-w-0';
+      sel.appendChild(new Option('Semua kategori', ''));
+      Object.keys(counts).sort().forEach(function (k) {
+        sel.appendChild(new Option(k + ' (' + counts[k] + ')', k));
+      });
+      sel.value = current;
+      sel.addEventListener('change', function () {
+        Viz.filters.answers = (Viz.filters.answers || []).filter(function (a) {
+          return !(a.qid === q.question_id && a.kind === 'kat');
+        });
+        if (sel.value) {
+          Viz.filters.answers.push({
+            qid: q.question_id, roster_group: q.roster_group || '',
+            kind: 'kat', value: sel.value,
+            label: q.question_id + ' kategori ' + sel.value
+          });
+        }
+        renderViz();
+      });
+      row.appendChild(lbl);
+      row.appendChild(sel);
+      return row;
+    }
+
+    /**
+     * Satu baris bar horizontal: label | bar | angka di ujung (direct label).
+     * opts = { label, count, max, total, muted, tipExtra, filter }
+     * muted=true untuk kategori de-emphasis "Tidak diisi"; filter (kalau ada)
+     * membuat baris bisa diklik untuk toggle filter nilai (chips), dengan
+     * state aktif ditandai .viz-active.
+     */
+    function vizBarRow(opts) {
+      var row = document.createElement('div');
+      row.className = 'viz-row flex items-center gap-2 min-h-[22px] px-1 -mx-1';
+      var tip = vizFmtNum(opts.count, 0) + ' (' + vizPct(opts.count, opts.total) + '%) — ' + opts.label;
+      if (opts.tipExtra) tip += '\n' + opts.tipExtra;
+      if (opts.filter) tip += '\nKlik untuk jadikan filter';
+      row.setAttribute('data-tip', tip);
+      var l = document.createElement('span');
+      l.className = 'w-32 sm:w-44 shrink-0 text-xs text-slate-600 truncate';
+      l.textContent = opts.label;
+      var track = document.createElement('div');
+      track.className = 'flex-1 min-w-0';
+      var bar = document.createElement('div');
+      bar.className = 'viz-bar' + (opts.muted ? ' viz-bar-muted' : '');
+      if (opts.count > 0 && opts.max > 0) {
+        bar.style.width = Math.max(2, Math.round((opts.count / opts.max) * 100)) + '%';
+      } else {
+        bar.style.width = '0';
+        bar.style.minWidth = '0';
+      }
+      track.appendChild(bar);
+      var c = document.createElement('span');
+      c.className = 'viz-num text-xs text-slate-700 w-10 text-right shrink-0';
+      c.textContent = vizFmtNum(opts.count, 0);
+      row.appendChild(l);
+      row.appendChild(track);
+      row.appendChild(c);
+      if (opts.filter) {
+        row.setAttribute('data-filterable', '1');
+        if (isAnswerFilterActive(opts.filter)) row.classList.add('viz-active');
+        row.addEventListener('click', function () { toggleAnswerFilter(opts.filter); });
+      }
+      return row;
+    }
+
+    function emptyFilterFor(q) {
+      return {
+        qid: q.question_id, roster_group: q.roster_group || '', kind: 'empty',
+        label: q.question_id + ' tidak diisi'
+      };
+    }
+
+    // Kategorik: bar per opsi MENGIKUTI urutan opsi (kode ordinal — jangan
+    // diurutkan ulang berdasar count), + "Lainnya" & "Tidak diisi" bila ada.
+    // Tiap opsi bisa diklik jadi filter; "Lainnya" tidak (nilainya campuran).
+    function vizCategoricalChart(q, vals) {
+      var oc = VizLogic.optionCounts(vals.values, q.options);
+      var rows = oc.items.map(function (it) {
+        return {
+          label: it.key + '. ' + it.label, count: it.count, muted: false,
+          filter: {
+            qid: q.question_id, roster_group: q.roster_group || '', kind: 'eq', value: it.key,
+            label: q.question_id + ' = ' + it.key + '. ' + it.label
+          }
+        };
+      });
+      if (oc.other > 0) rows.push({ label: 'Lainnya', count: oc.other, muted: false, filter: null });
+      if (vals.empty > 0) rows.push({ label: 'Tidak diisi', count: vals.empty, muted: true, filter: emptyFilterFor(q) });
+      var max = 0;
+      rows.forEach(function (r) { if (r.count > max) max = r.count; });
+      var wrap = document.createElement('div');
+      wrap.className = 'space-y-1';
+      rows.forEach(function (r) {
+        wrap.appendChild(vizBarRow({ label: r.label, count: r.count, max: max, total: vals.rows, muted: r.muted, filter: r.filter }));
+      });
+      return wrap;
+    }
+
+    // Numerik: histogram bin cantik + ringkasan statistik. Tiap bin bisa
+    // di-hover (tooltip rentang: jumlah) dan diklik jadi filter rentang.
+    function vizNumericChart(q, vals) {
+      var nums = VizLogic.toNumbers(vals.values);
+      var wrap = document.createElement('div');
+      if (!nums.length) {
+        var p = document.createElement('p');
+        p.className = 'text-xs text-slate-400 py-2';
+        p.textContent = 'Belum ada isian angka.';
+        wrap.appendChild(p);
+        return wrap;
+      }
+      var stats = VizLogic.numericStats(nums);
+      var h = VizLogic.histogram(nums, 8);
+      var dec = h.step > 0 && h.step < 1 ? 2 : 0;
+
+      var plot = document.createElement('div');
+      plot.className = 'viz-plot flex items-end gap-[2px] h-24';
+      var maxCount = 0, maxBin = h.bins[0];
+      h.bins.forEach(function (b) { if (b.count > maxCount) { maxCount = b.count; maxBin = b; } });
+      h.bins.forEach(function (b, i) {
+        var isLast = i === h.bins.length - 1;
+        var range = b.x0 === b.x1
+          ? vizFmtNum(b.x0, dec)
+          : vizFmtNum(b.x0, dec) + '–' + vizFmtNum(b.x1, dec);
+        var flt = {
+          qid: q.question_id, roster_group: q.roster_group || '',
+          kind: 'range', x0: b.x0, x1: b.x1, incMax: isLast || b.x0 === b.x1,
+          label: q.question_id + ': ' + range
+        };
+        var cw = document.createElement('div');
+        cw.className = 'viz-colwrap flex-1 h-full flex items-end min-w-0';
+        cw.setAttribute('data-tip', vizFmtNum(b.count, 0) + ' (' + vizPct(b.count, stats.n) + '%) — ' + range + '\nKlik untuk jadikan filter');
+        cw.setAttribute('data-filterable', '1');
+        if (isAnswerFilterActive(flt)) cw.classList.add('viz-active');
+        cw.addEventListener('click', function () { toggleAnswerFilter(flt); });
+        var col = document.createElement('div');
+        col.className = 'viz-col w-full';
+        col.style.height = maxCount > 0 && b.count > 0
+          ? Math.max(3, Math.round((b.count / maxCount) * 100)) + '%'
+          : '0';
+        cw.appendChild(col);
+        plot.appendChild(cw);
+      });
+      wrap.appendChild(plot);
+
+      var axis = document.createElement('div');
+      axis.className = 'flex justify-between text-[10px] text-slate-400 mt-1 viz-num';
+      var a0 = document.createElement('span');
+      a0.textContent = vizFmtNum(h.bins[0].x0, dec);
+      var a1 = document.createElement('span');
+      a1.textContent = vizFmtNum(h.bins[h.bins.length - 1].x1, dec);
+      axis.appendChild(a0);
+      axis.appendChild(a1);
+      wrap.appendChild(axis);
+
+      var st = document.createElement('p');
+      st.className = 'text-xs text-slate-500 mt-2';
+      st.textContent = 'Min ' + vizFmtNum(stats.min) + ' · Median ' + vizFmtNum(stats.median) +
+        ' · Rata-rata ' + vizFmtNum(stats.mean) + ' · Maks ' + vizFmtNum(stats.max);
+      wrap.appendChild(st);
+      if (h.bins.length > 1) {
+        var peak = document.createElement('p');
+        peak.className = 'text-xs text-slate-400 mt-0.5';
+        peak.textContent = 'Terbanyak: ' + vizFmtNum(maxBin.count, 0) + ' pada rentang ' +
+          vizFmtNum(maxBin.x0, dec) + '–' + vizFmtNum(maxBin.x1, dec);
+        wrap.appendChild(peak);
+      }
+      return wrap;
+    }
+
+    // Teks/KBLI: nilai terpopuler, bisa diklik jadi filter. KBLI menampilkan
+    // huruf kategori (VizLogic.kbliKategori) + judul KBLI di tooltip (judul
+    // di-fetch sekali lewat ensureKbli). KECUALI nama orang (roster anggota
+    // keluarga): halaman ini bisa dibuka tanpa login, jadi ISI teksnya tidak
+    // ditampilkan — hanya terisi/kosong + jumlah nilai unik.
+    function vizTextChart(q, vals) {
+      var wrap = document.createElement('div');
+      wrap.className = 'space-y-1';
+      var tv = VizLogic.topValues(vals.values, 8);
+      var privasi = q.roster_group === 'anggota_keluarga' && (q.type === 'text' || q.type === 'textarea');
+      if (privasi) {
+        var maxTK = Math.max(vals.values.length, vals.empty);
+        wrap.appendChild(vizBarRow({ label: 'Terisi', count: vals.values.length, max: maxTK, total: vals.rows, muted: false, filter: null }));
+        wrap.appendChild(vizBarRow({ label: 'Tidak diisi', count: vals.empty, max: maxTK, total: vals.rows, muted: true, filter: emptyFilterFor(q) }));
+        var note = document.createElement('p');
+        note.className = 'text-xs text-slate-400 mt-1';
+        note.textContent = tv.uniqueCount + ' nilai unik — isi teks tidak ditampilkan (data pribadi).';
+        wrap.appendChild(note);
+        return wrap;
+      }
+
+      var isKbli = q.type === 'kbli';
+      var judulMap = {};
+      if (isKbli) {
+        if (App.state.kbliOptions) {
+          App.state.kbliOptions.forEach(function (o) { judulMap[o.kode] = o.nama; });
+        } else if (!Viz.kbliFetching) {
+          // Judul KBLI belum ter-cache (halaman ini bisa dibuka tanpa login):
+          // ambil sekali, lalu render ulang supaya tooltip memuat judulnya.
+          Viz.kbliFetching = true;
+          ensureKbli().then(function () { renderViz(); }).catch(function () {});
+        }
+      }
+
+      var rows = tv.items.map(function (it) {
+        var kat = isKbli ? VizLogic.kbliKategori(it.value) : '';
+        return {
+          label: it.value + (kat ? ' · ' + kat : ''), count: it.count, muted: false,
+          tipExtra: isKbli ? (judulMap[it.value] || '') : '',
+          filter: {
+            qid: q.question_id, roster_group: q.roster_group || '', kind: 'eq', value: it.value,
+            label: q.question_id + ' = ' + it.value + (kat ? ' (' + kat + ')' : '')
+          }
+        };
+      });
+      if (tv.otherCount > 0) rows.push({ label: '(nilai lainnya)', count: tv.otherCount, muted: false, tipExtra: '', filter: null });
+      if (vals.empty > 0) rows.push({ label: 'Tidak diisi', count: vals.empty, muted: true, tipExtra: '', filter: emptyFilterFor(q) });
+      var max = 0;
+      rows.forEach(function (r) { if (r.count > max) max = r.count; });
+      rows.forEach(function (r) {
+        wrap.appendChild(vizBarRow({ label: r.label, count: r.count, max: max, total: vals.rows, muted: r.muted, tipExtra: r.tipExtra, filter: r.filter }));
+      });
+      var uniq = document.createElement('p');
+      uniq.className = 'text-xs text-slate-400 mt-1';
+      uniq.textContent = tv.uniqueCount + ' nilai unik.';
+      wrap.appendChild(uniq);
+      return wrap;
+    }
+
+    // ---- tabulasi per dimensi (tab Kecamatan/Desa/SLS/PML/PPL) ----
+
+    function vizTabSection(q, slice) {
+      var sec = document.createElement('div');
+      // mt-auto: menempel ke dasar kartu (kartu flex-col yang diregangkan
+      // grid) supaya tombol tabulasi sejajar antar kartu sebaris.
+      sec.className = 'mt-auto pt-2 border-t border-slate-100';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('data-testid', 'viz-tab-toggle');
+      btn.className = 'min-h-[36px] text-xs font-semibold text-orange-700 active:text-orange-800';
+      var panel = document.createElement('div');
+      panel.className = 'mt-1 hidden';
+      var open = !!Viz.openTab[q.question_id];
+      btn.textContent = open ? 'Tutup tabulasi' : 'Lihat tabulasi';
+      if (open) {
+        panel.classList.remove('hidden');
+        fillVizTabPanel(panel, q, slice);
+      }
+      btn.addEventListener('click', function () {
+        if (Viz.openTab[q.question_id]) {
+          delete Viz.openTab[q.question_id];
+          panel.classList.add('hidden');
+          panel.innerHTML = '';
+          btn.textContent = 'Lihat tabulasi';
+        } else {
+          Viz.openTab[q.question_id] = 'kec';
+          panel.classList.remove('hidden');
+          fillVizTabPanel(panel, q, slice);
+          btn.textContent = 'Tutup tabulasi';
+        }
+      });
+      sec.appendChild(btn);
+      sec.appendChild(panel);
+      return sec;
+    }
+
+    function fillVizTabPanel(panel, q, slice) {
+      panel.innerHTML = '';
+      var dim = Viz.openTab[q.question_id] || 'kec';
+      var tabs = document.createElement('div');
+      tabs.className = 'flex gap-1 overflow-x-auto pb-1';
+      VizLogic.DIMS.forEach(function (d) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('data-testid', 'viz-tab-' + d.id);
+        b.className = 'h-8 px-2.5 rounded-lg text-xs font-medium shrink-0 ' +
+          (d.id === dim ? 'bg-orange-600 text-white' : 'bg-slate-100 text-slate-600 active:bg-slate-200');
+        b.textContent = d.label;
+        b.addEventListener('click', function () {
+          Viz.openTab[q.question_id] = d.id;
+          fillVizTabPanel(panel, q, slice);
+        });
+        tabs.appendChild(b);
+      });
+      panel.appendChild(tabs);
+      panel.appendChild(vizTableEl(VizLogic.tabulate(slice, q, dim), q, dim));
+    }
+
+    function vizTableEl(t, q, dim) {
+      var dimLabel = '';
+      VizLogic.DIMS.forEach(function (d) { if (d.id === dim) dimLabel = d.label; });
+      var optionLabel = {};
+      (q.options || []).forEach(function (o) { optionLabel[String(o.value)] = o.label; });
+
+      var box = document.createElement('div');
+      box.className = 'overflow-x-auto max-h-72 overflow-y-auto border border-slate-100 rounded-lg mt-1';
+      var table = document.createElement('table');
+      table.className = 'min-w-full text-xs';
+      table.setAttribute('data-testid', 'viz-table');
+
+      var thead = document.createElement('thead');
+      var hr = document.createElement('tr');
+      function th(text, first, title) {
+        var cell = document.createElement('th');
+        cell.className = 'px-2 py-1.5 font-medium text-slate-500 bg-slate-50 sticky top-0 whitespace-nowrap ' +
+          (first ? 'text-left' : 'text-right');
+        cell.textContent = text;
+        if (title) cell.title = title;
+        hr.appendChild(cell);
+      }
+      th(dimLabel, true);
+      t.columns.forEach(function (col) { th(col, false, optionLabel[col] || ''); });
+      thead.appendChild(hr);
+      table.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      function bodyRow(label, cells, isTotal) {
+        var tr = document.createElement('tr');
+        tr.className = isTotal
+          ? 'border-t border-slate-200 font-semibold bg-slate-50'
+          : 'border-t border-slate-100';
+        var lc = document.createElement('td');
+        lc.className = 'px-2 py-1 text-slate-700 max-w-[14rem] truncate';
+        lc.textContent = label;
+        lc.title = label;
+        tr.appendChild(lc);
+        cells.forEach(function (c) {
+          var td = document.createElement('td');
+          td.className = 'px-2 py-1 text-right text-slate-700 viz-num whitespace-nowrap';
+          td.textContent = vizFmtNum(c);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      }
+      t.rows.forEach(function (r) { bodyRow(r.label, r.cells, false); });
+      bodyRow(t.total.label, t.total.cells, true);
+      table.appendChild(tbody);
+      box.appendChild(table);
+      return box;
+    }
+
+    // ---- wiring event (sekali saat init) ----
+
+    function setVizJenis(j) {
+      if (Viz.jenis === j) return;
+      Viz.jenis = j;
+      // Filter nilai jawaban terikat qid milik jenis lama — tidak relevan
+      // (dan tidak pernah cocok) di jenis baru, buang supaya tidak menyaring hantu.
+      Viz.filters.answers = [];
+      setVizJenisButtons();
+      renderViz();
+    }
+    function setVizJenisButtons() {
+      [['viz-jenis-usaha', 'usaha'], ['viz-jenis-keluarga', 'keluarga']].forEach(function (d) {
+        var active = Viz.jenis === d[1];
+        el(d[0]).className = 'h-10 px-5 rounded-lg text-sm font-semibold ' +
+          (active ? 'bg-orange-600 text-white' : 'text-slate-600 active:bg-slate-100');
+        el(d[0]).setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+    }
+
+    function initViz() {
+      el('goto-app-btn').addEventListener('click', function () {
+        if (App.state.pml) enterDashboard();
+        else showView('login');
+      });
+      el('login-back-viz').addEventListener('click', enterViz);
+      el('open-viz-btn').addEventListener('click', enterViz);
+      el('viz-retry').addEventListener('click', loadVizData);
+      el('viz-reload').addEventListener('click', function () { if (!Viz.loading) loadVizData(); });
+      el('viz-reset').addEventListener('click', function () {
+        Viz.filters.kdkec = '';
+        Viz.filters.kddesa = '';
+        Viz.filters.kdsls = '';
+        Viz.filters.pml = '';
+        Viz.filters.ppl = '';
+        Viz.filters.answers = [];
+        renderViz();
+      });
+      [
+        ['viz-filter-kec', 'kdkec', ['kddesa', 'kdsls']],
+        ['viz-filter-desa', 'kddesa', ['kdsls']],
+        ['viz-filter-sls', 'kdsls', []],
+        ['viz-filter-pml', 'pml', []],
+        ['viz-filter-ppl', 'ppl', []]
+      ].forEach(function (def) {
+        el(def[0]).addEventListener('change', function () {
+          Viz.filters[def[1]] = el(def[0]).value;
+          def[2].forEach(function (child) { Viz.filters[child] = ''; }); // turunan ikut reset
+          renderViz();
+        });
+      });
+      el('viz-include-draft').addEventListener('change', function () {
+        Viz.filters.includeDraft = el('viz-include-draft').checked;
+        renderViz();
+      });
+      el('viz-jenis-usaha').addEventListener('click', function () { setVizJenis('usaha'); });
+      el('viz-jenis-keluarga').addEventListener('click', function () { setVizJenis('keluarga'); });
+      setVizJenisButtons();
+      initVizTooltip();
+    }
+
+    // Tooltip hover bersama untuk semua mark ber-data-tip (bar & bin
+    // histogram). Delegasi di container kartu — mark dibuat ulang tiap render,
+    // listener cukup dipasang sekali di sini. Tooltip memperkaya, tidak
+    // menggantikan: angka tetap tertulis di ujung bar & tersedia di tabulasi.
+    function initVizTooltip() {
+      var tip = el('viz-tooltip');
+      var box = el('viz-cards');
+      function tipTargetOf(ev) {
+        return ev.target && ev.target.closest ? ev.target.closest('[data-tip]') : null;
+      }
+      function place(ev) {
+        var x = ev.clientX + 12;
+        var y = ev.clientY + 16;
+        if (x + tip.offsetWidth > window.innerWidth - 8) x = window.innerWidth - tip.offsetWidth - 8;
+        if (y + tip.offsetHeight > window.innerHeight - 8) y = ev.clientY - tip.offsetHeight - 10;
+        tip.style.left = Math.max(4, x) + 'px';
+        tip.style.top = Math.max(4, y) + 'px';
+      }
+      box.addEventListener('pointerover', function (ev) {
+        var t = tipTargetOf(ev);
+        if (!t) return;
+        tip.textContent = t.getAttribute('data-tip');
+        tip.classList.remove('hidden');
+        place(ev);
+      });
+      box.addEventListener('pointermove', function (ev) {
+        if (tip.classList.contains('hidden')) return;
+        var t = tipTargetOf(ev);
+        if (!t) { tip.classList.add('hidden'); return; }
+        tip.textContent = t.getAttribute('data-tip');
+        place(ev);
+      });
+      box.addEventListener('pointerout', function (ev) {
+        var t = tipTargetOf(ev);
+        if (!t) return;
+        // Masih pindah ke elemen anak dari mark yang sama → biarkan tampil.
+        if (ev.relatedTarget && t.contains(ev.relatedTarget)) return;
+        tip.classList.add('hidden');
+      });
+      // Mark diklik (jadi filter) → chart dirender ulang; sembunyikan supaya
+      // tooltip tidak "menggantung" tanpa mark di bawah kursor.
+      box.addEventListener('click', function () { tip.classList.add('hidden'); });
+    }
+
     // ==== FAB scroll-to-top ====
     window.addEventListener('scroll', function () {
       el('fab-top').classList.toggle('hidden', window.scrollY < 300);
@@ -1378,7 +2137,12 @@
     });
 
     initCascades();
+    initViz();
+    // Identitas PML dipulihkan dari localStorage (kalau ada) — tapi halaman
+    // awal SELALU dashboard visualisasi; tombol "Lembar Kerja" di sana yang
+    // membawa PML ber-sesi langsung masuk tanpa login ulang.
     restoreSession();
+    enterViz();
   </script>
 </body>
 </html>

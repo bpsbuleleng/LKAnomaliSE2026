@@ -11,6 +11,8 @@ function app(page) {
 
 async function submitLogin(page, email, password) {
   const f = app(page);
+  // Halaman awal = dashboard visualisasi; form login ada di balik tombolnya.
+  await f.getByTestId('goto-app-btn').click();
   await f.getByTestId('login-email').fill(email);
   await f.getByTestId('login-password').fill(password);
   await f.getByTestId('login-submit').click();

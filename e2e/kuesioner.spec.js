@@ -12,6 +12,8 @@ function app(page) {
 async function login(page, email) {
   await page.goto(EXEC_URL);
   const f = app(page);
+  // Halaman awal = dashboard visualisasi; form login ada di balik tombolnya.
+  await f.getByTestId('goto-app-btn').click();
   await f.getByTestId('login-email').fill(email);
   await f.getByTestId('login-password').fill('cobaapp');
   await f.getByTestId('login-submit').click();
@@ -134,11 +136,13 @@ test('hapus record: konfirmasi → hilang dari dashboard, dari server, dan dari 
   await expect(f.getByTestId('record-card')).toHaveCount(0);
   await expect(f.getByTestId('record-empty')).toBeVisible();
 
-  // Muat ulang halaman (state client bersih, sesi PML tetap awet lewat
-  // localStorage → dashboard langsung tanpa login ulang): server & IndexedDB
-  // dua-duanya kosong → dashboard tetap kosong, tidak ada "record hantu".
+  // Muat ulang halaman (state client bersih; halaman awal = dashboard viz,
+  // sesi PML awet di localStorage → tombol langsung ke Lembar Kerja tanpa
+  // login ulang): server & IndexedDB dua-duanya kosong → daftar tetap kosong,
+  // tidak ada "record hantu".
   await page.goto(EXEC_URL);
   const f2 = app(page);
+  await f2.getByTestId('goto-app-btn').click();
   await expect(f2.getByTestId('dashboard-view')).toBeVisible();
   await expect(f2.getByTestId('record-empty')).toBeVisible();
   await expect(f2.getByTestId('record-card')).toHaveCount(0);
@@ -174,11 +178,12 @@ test('OFFLINE: data selamat di IndexedDB + indikator belum-sync → online → a
   await expect(syncIndicator(f)).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
 
   // Verifikasi data benar-benar sampai SERVER: muat ulang halaman (IndexedDB
-  // bersih tidak dipakai karena draft sudah clean → dashboard pakai server;
-  // sesi PML tetap awet lewat localStorage → tidak perlu login lagi), buka
-  // record → nilai dari server.
+  // bersih tidak dipakai karena draft sudah clean → daftar pakai server;
+  // sesi PML tetap awet lewat localStorage → dari halaman awal viz cukup klik
+  // tombol Lembar Kerja tanpa login lagi), buka record → nilai dari server.
   await page.goto(EXEC_URL);
   const f2 = app(page);
+  await f2.getByTestId('goto-app-btn').click();
   await expect(f2.getByTestId('dashboard-view')).toBeVisible();
   await expect(f2.getByTestId('record-card')).toHaveCount(1);
   await f2.getByTestId('record-card').click();

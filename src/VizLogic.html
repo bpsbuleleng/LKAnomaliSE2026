@@ -1,0 +1,454 @@
+<script>
+/**
+ * VizLogic — logic murni agregasi dashboard visualisasi (CLIENT-side, tanpa
+ * DOM). Di-unit-test di Node lewat test/helpers/loadHtmlScript.js.
+ *
+ * Bentuk record = payload VizData.forDashboard:
+ *   { jenis, status, wilayah: {kdkec,nmkec,...,nmppl,nmpml,emailppl,emailpml},
+ *     answers, anomali_count }
+ * Semua fungsi menerima array record yang SUDAH termuat di client — filter dan
+ * tabulasi dihitung ulang lokal tiap interaksi, tanpa panggilan server.
+ */
+var VizLogic = (function () {
+  function s(v) { return String(v == null ? '' : v); }
+  function isEmptyVal(v) { return v === undefined || v === null || v === ''; }
+
+  // PML/PPL diidentifikasi lewat email snapshot (unik); fallback nama untuk
+  // baris alokasi riil yang emailppl-nya kosong (ada 5 baris begitu).
+  function pmlKey(rec) { var w = rec.wilayah || {}; return s(w.emailpml) || s(w.nmpml); }
+  function pplKey(rec) { var w = rec.wilayah || {}; return s(w.emailppl) || s(w.nmppl); }
+
+  // ==== KATEGORI KBLI (huruf A-U) ====
+  // Pemetaan golongan pokok (2 digit pertama kode KBLI) → huruf kategori,
+  // SAMA dengan ComputedFields.r13h (server). Diduplikasi karena modul ini
+  // client-side murni — kalau rentang di sana direvisi, samakan di sini.
+  var KBLI_KATEGORI_RANGES = [
+    [1, 3, 'A'], [5, 9, 'B'], [10, 33, 'C'], [35, 35, 'D'], [36, 39, 'E'],
+    [41, 43, 'F'], [45, 47, 'G'], [49, 53, 'H'], [55, 56, 'I'], [58, 63, 'J'],
+    [64, 66, 'K'], [68, 68, 'L'], [69, 75, 'M'], [77, 82, 'N'], [84, 84, 'O'],
+    [85, 85, 'P'], [86, 88, 'Q'], [90, 93, 'R'], [94, 96, 'S'], [97, 98, 'T'],
+    [99, 99, 'U']
+  ];
+  function kbliKategori(kode) {
+    var k = s(kode);
+    if (k.length < 2) return '';
+    var golPokok = Number(k.slice(0, 2));
+    if (isNaN(golPokok)) return '';
+    for (var i = 0; i < KBLI_KATEGORI_RANGES.length; i++) {
+      if (golPokok >= KBLI_KATEGORI_RANGES[i][0] && golPokok <= KBLI_KATEGORI_RANGES[i][1]) {
+        return KBLI_KATEGORI_RANGES[i][2];
+      }
+    }
+    return '';
+  }
+
+  // ==== FILTER NILAI JAWABAN (click-to-filter dari chart) ====
+  // Satu filter = { qid, roster_group, kind, ... }:
+  //   kind 'eq'    → nilai == value (bandingkan sebagai string)
+  //   kind 'empty' → nilai kosong/belum diisi
+  //   kind 'range' → x0 <= angka < x1 (incMax: batas atas ikut — bin terakhir)
+  //   kind 'kat'   → kategori huruf KBLI dari nilai == value
+  // Pertanyaan roster: record cocok kalau ADA baris roster yang memenuhi.
+  // Filter NILAI (eq/empty/range) pada qid yang sama di-OR-kan (pilih dua
+  // opsi = "salah satunya"; "Tidak diisi" ikut jadi salah satu nilai);
+  // selebihnya di-AND-kan — antar qid, dan kategori KBLI ('kat') terhadap
+  // nilai qid yang sama (kategori A + kode 01122 = mempersempit, bukan melebar).
+
+  function answerValuesOf(rec, flt) {
+    var answers = rec.answers || {};
+    if (flt.roster_group) {
+      var rows = (answers.roster && answers.roster[flt.roster_group]) || [];
+      return rows.map(function (row) { return row ? row[flt.qid] : undefined; });
+    }
+    return [answers[flt.qid]];
+  }
+
+  function answerFilterMatches(rec, flt) {
+    var vals = answerValuesOf(rec, flt);
+    for (var i = 0; i < vals.length; i++) {
+      var v = vals[i];
+      if (flt.kind === 'empty') {
+        if (isEmptyVal(v)) return true;
+      } else if (isEmptyVal(v)) {
+        continue;
+      } else if (flt.kind === 'eq') {
+        if (s(v) === s(flt.value)) return true;
+      } else if (flt.kind === 'kat') {
+        if (kbliKategori(v) === s(flt.value)) return true;
+      } else if (flt.kind === 'range') {
+        var n = Number(v);
+        if (isFinite(n) && n >= flt.x0 && (n < flt.x1 || (flt.incMax && n <= flt.x1))) return true;
+      }
+    }
+    return false;
+  }
+
+  function matchesAnswerFilters(rec, filters) {
+    if (!filters || !filters.length) return true;
+    var groups = {};
+    filters.forEach(function (flt) {
+      var key = flt.qid + '|' + (flt.kind === 'kat' ? 'kat' : 'val');
+      (groups[key] = groups[key] || []).push(flt);
+    });
+    var keys = Object.keys(groups);
+    for (var i = 0; i < keys.length; i++) {
+      var group = groups[keys[i]];
+      var any = false;
+      for (var j = 0; j < group.length && !any; j++) {
+        any = answerFilterMatches(rec, group[j]);
+      }
+      if (!any) return false;
+    }
+    return true;
+  }
+
+  /** Dua filter dianggap sama (untuk toggle klik kedua kali). */
+  function sameAnswerFilter(a, b) {
+    return a.qid === b.qid && a.kind === b.kind &&
+      s(a.value) === s(b.value) &&
+      (a.x0 === b.x0 || (a.x0 == null && b.x0 == null)) &&
+      (a.x1 === b.x1 || (a.x1 == null && b.x1 == null));
+  }
+
+  /**
+   * filters = { jenis, includeDraft, kdkec, kddesa, kdsls, pml, ppl,
+   *             answers: [filter nilai jawaban...] }
+   * (string kosong = tidak memfilter; pml/ppl memakai pmlKey/pplKey).
+   */
+  function matchesFilters(rec, f) {
+    f = f || {};
+    if (f.jenis && rec.jenis !== f.jenis) return false;
+    if (!f.includeDraft && rec.status !== 'submitted') return false;
+    var w = rec.wilayah || {};
+    if (f.kdkec && s(w.kdkec) !== f.kdkec) return false;
+    if (f.kddesa && s(w.kddesa) !== f.kddesa) return false;
+    if (f.kdsls && s(w.kdsls) !== f.kdsls) return false;
+    if (f.pml && pmlKey(rec) !== f.pml) return false;
+    if (f.ppl && pplKey(rec) !== f.ppl) return false;
+    if (!matchesAnswerFilters(rec, f.answers)) return false;
+    return true;
+  }
+
+  function filterRecords(records, f) {
+    return (records || []).filter(function (r) { return matchesFilters(r, f); });
+  }
+
+  /**
+   * Opsi dropdown filter, bertingkat mengikuti pilihan wilayah saat ini:
+   * kecamatan dari semua record se-scope (jenis+status), desa dibatasi
+   * kecamatan terpilih, SLS dibatasi kecamatan+desa; PML/PPL dibatasi seluruh
+   * pilihan wilayah. Record tanpa wilayah (draft belum pilih Sub-SLS) tidak
+   * menyumbang opsi.
+   */
+  function filterOptions(records, f) {
+    f = f || {};
+    var scoped = filterRecords(records, { jenis: f.jenis, includeDraft: f.includeDraft });
+    var kec = {}, desa = {}, sls = {}, pml = {}, ppl = {};
+    scoped.forEach(function (rec) {
+      var w = rec.wilayah || {};
+      if (s(w.kdkec)) kec[s(w.kdkec)] = s(w.nmkec);
+      var inKec = !f.kdkec || s(w.kdkec) === f.kdkec;
+      if (inKec && s(w.kddesa)) desa[s(w.kddesa)] = s(w.nmdesa);
+      var inDesa = inKec && (!f.kddesa || s(w.kddesa) === f.kddesa);
+      if (inDesa && s(w.kdsls)) sls[s(w.kdsls)] = s(w.nmsls);
+      var inSls = inDesa && (!f.kdsls || s(w.kdsls) === f.kdsls);
+      if (inSls) {
+        if (pmlKey(rec)) pml[pmlKey(rec)] = s(w.nmpml) || pmlKey(rec);
+        if (pplKey(rec)) ppl[pplKey(rec)] = s(w.nmppl) || pplKey(rec);
+      }
+    });
+    function byKode(map) {
+      return Object.keys(map).sort().map(function (k) { return { kode: k, nama: map[k] }; });
+    }
+    function byNama(map) {
+      return Object.keys(map)
+        .map(function (k) { return { kode: k, nama: map[k] }; })
+        .sort(function (a, b) { return a.nama < b.nama ? -1 : a.nama > b.nama ? 1 : 0; });
+    }
+    return { kec: byKode(kec), desa: byKode(desa), sls: byKode(sls), pml: byNama(pml), ppl: byNama(ppl) };
+  }
+
+  /** Ringkasan stat tile atas scope jenis+wilayah+petugas (status TIDAK ikut
+   *  memfilter di sini — tile justru memecah per status). Anomali dihitung
+   *  hanya dari record submitted (draft belum diperiksa rule). */
+  function summary(records, f) {
+    var scope = filterRecords(records, {
+      jenis: f.jenis, includeDraft: true,
+      kdkec: f.kdkec, kddesa: f.kddesa, kdsls: f.kdsls, pml: f.pml, ppl: f.ppl,
+      answers: f.answers
+    });
+    var out = { total: scope.length, submitted: 0, draft: 0, anomali: 0 };
+    scope.forEach(function (rec) {
+      if (rec.status === 'submitted') {
+        out.submitted++;
+        out.anomali += rec.anomali_count || 0;
+      } else {
+        out.draft++;
+      }
+    });
+    return out;
+  }
+
+  /**
+   * Kumpulkan nilai satu butir pertanyaan dari kumpulan record terfilter.
+   * Non-roster: satu nilai per record; roster: satu nilai per BARIS roster
+   * (unit analisisnya baris, mis. per anggota keluarga).
+   * @return { values: [nilai terisi...], empty: n, rows: terisi+kosong }
+   */
+  function questionValues(records, q) {
+    var values = [];
+    var empty = 0;
+    (records || []).forEach(function (rec) {
+      var answers = rec.answers || {};
+      if (q.roster_group) {
+        var rows = (answers.roster && answers.roster[q.roster_group]) || [];
+        rows.forEach(function (row) {
+          var v = row ? row[q.question_id] : undefined;
+          if (isEmptyVal(v)) empty++; else values.push(v);
+        });
+      } else {
+        var v2 = answers[q.question_id];
+        if (isEmptyVal(v2)) empty++; else values.push(v2);
+      }
+    });
+    return { values: values, empty: empty, rows: values.length + empty };
+  }
+
+  /** Jenis penyajian per tipe pertanyaan (dipakai chart DAN tabulasi). */
+  function chartKind(q) {
+    if (q.type === 'select') return 'categorical';
+    if (q.type === 'number' || q.type === 'currency') return 'numeric';
+    return 'text'; // text | textarea | kbli | date
+  }
+
+  /** Hitung nilai kategorik per opsi (urutan MENGIKUTI urutan opsi — kode
+   *  kategorik itu ordinal, jangan diurutkan ulang berdasar count).
+   *  Nilai terisi yang tidak cocok opsi mana pun masuk `other`. */
+  function optionCounts(values, options) {
+    var items = (options || []).map(function (o) {
+      return { key: s(o.value), label: s(o.label), count: 0 };
+    });
+    var index = {};
+    items.forEach(function (it) { index[it.key] = it; });
+    var other = 0;
+    (values || []).forEach(function (v) {
+      var it = index[s(v)];
+      if (it) it.count++; else other++;
+    });
+    return { items: items, other: other };
+  }
+
+  /** Nilai teks terpopuler (top-N) + sisa. */
+  function topValues(values, limit) {
+    var max = limit || 10;
+    var counts = {};
+    (values || []).forEach(function (v) {
+      var k = s(v).trim();
+      if (!k) return;
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    var keys = Object.keys(counts).sort(function (a, b) {
+      return counts[b] - counts[a] || (a < b ? -1 : a > b ? 1 : 0);
+    });
+    var items = keys.slice(0, max).map(function (k) { return { value: k, count: counts[k] }; });
+    var otherCount = 0;
+    keys.slice(max).forEach(function (k) { otherCount += counts[k]; });
+    return { items: items, otherCount: otherCount, uniqueCount: keys.length };
+  }
+
+  function toNumbers(values) {
+    var out = [];
+    (values || []).forEach(function (v) {
+      var n = Number(v);
+      if (!isEmptyVal(v) && isFinite(n)) out.push(n);
+    });
+    return out;
+  }
+
+  function numericStats(nums) {
+    if (!nums || !nums.length) return null;
+    var sorted = nums.slice().sort(function (a, b) { return a - b; });
+    var sum = 0;
+    sorted.forEach(function (n) { sum += n; });
+    var mid = Math.floor(sorted.length / 2);
+    var median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    return {
+      n: sorted.length,
+      min: sorted[0],
+      max: sorted[sorted.length - 1],
+      mean: sum / sorted.length,
+      median: median,
+      sum: sum
+    };
+  }
+
+  // Lebar bin "cantik" 1/2/5 × 10^k terdekat di atas raw (raw>0).
+  function niceStep(raw) {
+    var pow = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+    var frac = raw / pow;
+    var nice = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10;
+    return nice * pow;
+  }
+
+  /**
+   * Histogram bin cantik untuk chart numerik. targetBins default 8 (hasil bisa
+   * sedikit lebih/kurang karena step dibulatkan ke 1/2/5×10^k).
+   * Semua nilai sama → satu bin tunggal.
+   */
+  function histogram(nums, targetBins) {
+    if (!nums || !nums.length) return { bins: [], step: 0 };
+    var stats = numericStats(nums);
+    if (stats.min === stats.max) {
+      return { bins: [{ x0: stats.min, x1: stats.max, count: nums.length }], step: 0 };
+    }
+    var step = niceStep((stats.max - stats.min) / (targetBins || 8));
+    var start = Math.floor(stats.min / step) * step;
+    // Jumlah bin dihitung lewat indeks bulat (bukan akumulasi x += step) supaya
+    // error floating point tidak menciptakan bin kosong ekstra di ujung;
+    // -1e-9 menjaga max yang tepat di batas bin tidak membuka bin baru.
+    var binCount = Math.min(60, Math.max(1, Math.ceil((stats.max - start) / step - 1e-9)));
+    var bins = [];
+    for (var b = 0; b < binCount; b++) {
+      bins.push({ x0: start + b * step, x1: start + (b + 1) * step, count: 0 });
+    }
+    nums.forEach(function (n) {
+      var i = Math.min(bins.length - 1, Math.floor((n - start) / step));
+      if (i >= 0) bins[i].count++;
+    });
+    return { bins: bins, step: step };
+  }
+
+  // ==== TABULASI PER DIMENSI (tab Kecamatan/Desa/SLS/PML/PPL) ====
+
+  var DIMS = [
+    { id: 'kec', label: 'Kecamatan' },
+    { id: 'desa', label: 'Desa' },
+    { id: 'sls', label: 'SLS' },
+    { id: 'pml', label: 'PML' },
+    { id: 'ppl', label: 'PPL' }
+  ];
+
+  // Kunci & label grup satu record untuk dimensi tabulasi. Kode wilayah
+  // digabung bertingkat (desa unik per kecamatan, SLS per desa) — kode desa
+  // yang sama bisa muncul di dua kecamatan (fakta data riil).
+  function groupOf(rec, dim) {
+    var w = rec.wilayah || {};
+    if (dim === 'kec') {
+      return s(w.kdkec)
+        ? { key: s(w.kdkec), label: s(w.nmkec) }
+        : { key: '', label: '(tanpa wilayah)' };
+    }
+    if (dim === 'desa') {
+      return s(w.kddesa)
+        ? { key: s(w.kdkec) + '/' + s(w.kddesa), label: s(w.nmdesa) }
+        : { key: '', label: '(tanpa wilayah)' };
+    }
+    if (dim === 'sls') {
+      return s(w.kdsls)
+        ? { key: s(w.kdkec) + '/' + s(w.kddesa) + '/' + s(w.kdsls), label: s(w.nmsls) + ' · ' + s(w.nmdesa) }
+        : { key: '', label: '(tanpa wilayah)' };
+    }
+    if (dim === 'pml') {
+      return pmlKey(rec)
+        ? { key: pmlKey(rec), label: s(w.nmpml) || pmlKey(rec) }
+        : { key: '', label: '(tanpa PML)' };
+    }
+    return pplKey(rec)
+      ? { key: pplKey(rec), label: s(w.nmppl) || pplKey(rec) }
+      : { key: '', label: '(tanpa PPL)' };
+  }
+
+  /**
+   * Tabulasi satu butir pertanyaan per dimensi wilayah/petugas.
+   * @return { kind, columns: [nama kolom], rows: [{key,label,cells:[...]}],
+   *           total: {label,cells} }
+   * Sel numerik dikembalikan sebagai ANGKA (null kalau grup tak punya nilai)
+   * — format tampilan urusan view. Baris grup terurut kunci (wilayah = kode,
+   * petugas = label).
+   */
+  function tabulate(records, q, dim) {
+    var kind = chartKind(q);
+    var groups = {};
+    var order = [];
+    (records || []).forEach(function (rec) {
+      var g = groupOf(rec, dim);
+      if (!groups[g.key]) {
+        groups[g.key] = { key: g.key, label: g.label, records: [] };
+        order.push(g.key);
+      }
+      groups[g.key].records.push(rec);
+    });
+    order.sort(function (a, b) {
+      var la = dim === 'pml' || dim === 'ppl' ? groups[a].label : a;
+      var lb = dim === 'pml' || dim === 'ppl' ? groups[b].label : b;
+      return la < lb ? -1 : la > lb ? 1 : 0;
+    });
+
+    var columns, buildCells;
+    if (kind === 'categorical') {
+      var hasOther = optionCounts(questionValues(records, q).values, q.options).other > 0;
+      columns = (q.options || []).map(function (o) { return s(o.value); });
+      if (hasOther) columns.push('Lainnya');
+      columns.push('Kosong', 'Total');
+      buildCells = function (vals) {
+        var oc = optionCounts(vals.values, q.options);
+        var cells = oc.items.map(function (it) { return it.count; });
+        if (hasOther) cells.push(oc.other);
+        cells.push(vals.empty, vals.rows);
+        return cells;
+      };
+    } else if (kind === 'numeric') {
+      columns = ['N', 'Min', 'Median', 'Rata-rata', 'Maks', 'Jumlah'];
+      buildCells = function (vals) {
+        var st = numericStats(toNumbers(vals.values));
+        return st
+          ? [st.n, st.min, st.median, st.mean, st.max, st.sum]
+          : [0, null, null, null, null, null];
+      };
+    } else {
+      columns = ['Terisi', 'Kosong', 'Total'];
+      buildCells = function (vals) {
+        return [vals.values.length, vals.empty, vals.rows];
+      };
+    }
+
+    var rows = order.map(function (key) {
+      var g = groups[key];
+      return { key: g.key, label: g.label, cells: buildCells(questionValues(g.records, q)) };
+    });
+    return {
+      kind: kind,
+      columns: columns,
+      rows: rows,
+      total: { label: 'Total', cells: buildCells(questionValues(records, q)) }
+    };
+  }
+
+  return {
+    DIMS: DIMS,
+    pmlKey: pmlKey,
+    pplKey: pplKey,
+    kbliKategori: kbliKategori,
+    answerFilterMatches: answerFilterMatches,
+    matchesAnswerFilters: matchesAnswerFilters,
+    sameAnswerFilter: sameAnswerFilter,
+    matchesFilters: matchesFilters,
+    filterRecords: filterRecords,
+    filterOptions: filterOptions,
+    summary: summary,
+    questionValues: questionValues,
+    chartKind: chartKind,
+    optionCounts: optionCounts,
+    topValues: topValues,
+    toNumbers: toNumbers,
+    numericStats: numericStats,
+    histogram: histogram,
+    groupOf: groupOf,
+    tabulate: tabulate
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = VizLogic;
+}
+</script>

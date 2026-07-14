@@ -43,6 +43,8 @@ async function adminLogin(page) {
 async function pmlLogin(page) {
   await page.goto(EXEC_URL);
   const f = app(page);
+  // Halaman awal = dashboard visualisasi; form login ada di balik tombolnya.
+  await f.getByTestId('goto-app-btn').click();
   await f.getByTestId('login-email').fill(KADEK);
   await f.getByTestId('login-password').fill('cobaapp');
   await f.getByTestId('login-submit').click();

@@ -189,6 +189,26 @@ function resetConfig(adminPassword) {
   }
 }
 
+// ==== DASHBOARD VISUALISASI (halaman awal, unprivileged read-only) ====
+
+/**
+ * Data untuk dashboard visualisasi di halaman awal: SEMUA record (lintas PML,
+ * draft & submitted — client yang memfilter) dalam bentuk ringkas (VizData)
+ * + daftar pertanyaan aktif kedua jenis. Agregasi/chart/tabulasi sepenuhnya
+ * client-side (VizLogic) supaya filter interaktif tanpa bolak-balik server.
+ */
+function getDashboardData() {
+  var questions = SheetDb.readQuestions();
+  return {
+    ok: true,
+    records: VizData.forDashboard(SheetDb.readRecords()),
+    questions: {
+      usaha: QuestionLogic.selectQuestions(questions, 'usaha', false),
+      keluarga: QuestionLogic.selectQuestions(questions, 'keluarga', false)
+    }
+  };
+}
+
 // ==== CONFIG: baca (unprivileged, read-only) ====
 
 function getQuestions(jenis, includeInactive) {

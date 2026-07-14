@@ -15,9 +15,12 @@ function app(page) {
 async function login(page, email) {
   await page.goto(EXEC_URL);
   const f = app(page);
+  // Halaman awal = dashboard visualisasi; masuk aplikasi lewat tombolnya.
+  await f.getByTestId('goto-app-btn').click();
   // Sesi login sebelumnya di-restore otomatis dari localStorage (lihat
   // Index.html restoreSession) — test ini login berkali-kali di page yang
-  // SAMA, jadi logout dulu kalau sesi lama masih aktif supaya form login muncul.
+  // SAMA; kalau sesi lama masih aktif, tombol tadi langsung membuka Lembar
+  // Kerja, jadi logout dulu supaya form login muncul.
   if (await f.getByTestId('dashboard-view').isVisible().catch(() => false)) {
     await f.getByTestId('logout-btn').click();
   }

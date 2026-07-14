@@ -1,0 +1,124 @@
+<style>
+/* ===== Dashboard visualisasi (halaman awal) =====
+   Warna data mengikuti metode dataviz: SATU hue series (biru #2a78d6,
+   tervalidasi kontras ≥3:1 di permukaan kartu putih) untuk semua mark data;
+   abu-abu HANYA untuk kategori de-emphasis "Kosong/Tidak diisi" (selalu
+   berlabel angka langsung + tersedia tabulasi sebagai table view).
+   Oranye tetap milik chrome aplikasi (tombol/tab), bukan warna data. */
+#view-viz {
+  --viz-s1: #2a78d6;        /* series tunggal */
+  --viz-s1-strong: #256abf; /* hover lift */
+  --viz-muted: #94a3b8;     /* bar "kosong" (de-emphasis) */
+  --viz-grid: #e2e8f0;      /* hairline grid/baseline */
+}
+/* Bar horizontal: ujung data membulat 4px, pangkal (baseline kiri) siku */
+.viz-bar { background: var(--viz-s1); border-radius: 0 4px 4px 0; height: 16px; min-width: 2px; transition: filter .12s ease, width .25s ease; }
+.viz-bar-muted { background: var(--viz-muted); }
+.viz-row:hover .viz-bar { filter: brightness(.88); }
+/* Kolom histogram: ujung data (atas) membulat, pangkal di baseline siku */
+.viz-col { background: var(--viz-s1); border-radius: 4px 4px 0 0; min-height: 0; transition: filter .12s ease; }
+.viz-colwrap:hover .viz-col { filter: brightness(.88); }
+/* Kolom histogram berdiri di baseline hairline (garis solid, bukan putus) */
+.viz-plot { border-bottom: 1px solid var(--viz-grid); }
+/* Angka yang harus rata vertikal (sel tabel, label count) */
+.viz-num { font-variant-numeric: tabular-nums; }
+/* Mark yang bisa diklik jadi filter + state filter AKTIF (dipilih) */
+[data-filterable] { cursor: pointer; }
+.viz-active { background: #fff7ed; border-radius: 6px; }           /* orange-50 */
+.viz-active .viz-bar, .viz-active .viz-col { background: var(--viz-s1-strong); }
+.viz-colwrap.viz-active { background: transparent; }
+.viz-colwrap.viz-active .viz-col { outline: 2px solid #fb923c; outline-offset: -1px; } /* orange-400 */
+/* Area chart di dalam kartu: tinggi seragam antar kartu sebaris — daftar bar
+   panjang scroll ke dalam, bukan memanjangkan kartu. */
+.viz-chart-scroll { max-height: 15rem; overflow-y: auto; }
+</style>
+
+<!-- TANPA class hidden: ini halaman awal — tampil sebelum JS jalan supaya
+     tidak ada flash view login. -->
+<section id="view-viz" data-testid="viz-view" class="view max-w-md lg:max-w-5xl mx-auto px-3 py-4 sm:px-4 sm:py-6">
+  <div class="flex items-start justify-between gap-3 mb-3">
+    <div class="min-w-0">
+      <h1 class="text-lg font-bold leading-tight">Dashboard Isian SE2026</h1>
+      <p class="text-sm text-slate-500">Rekap &amp; visualisasi seluruh butir pertanyaan lembar kerja anomali</p>
+    </div>
+    <button id="goto-app-btn" data-testid="goto-app-btn" type="button"
+      class="h-11 px-4 rounded-xl bg-orange-600 text-white text-sm font-semibold active:bg-orange-700 shrink-0">
+      Masuk
+    </button>
+  </div>
+
+  <!-- Baris filter: SATU baris di atas semua yang di-scope-nya (kartu, tile,
+       tabulasi ikut slice yang sama). Opsi diisi dinamis dari record termuat
+       dan bertingkat (Desa ikut Kecamatan, SLS ikut Desa). -->
+  <div class="bg-white rounded-xl shadow-sm p-3 mb-3">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <select id="viz-filter-kec" data-testid="viz-filter-kec" class="h-11 px-2.5 text-sm rounded-xl border border-slate-300 bg-white min-w-0">
+        <option value="">Semua Kecamatan</option>
+      </select>
+      <select id="viz-filter-desa" data-testid="viz-filter-desa" class="h-11 px-2.5 text-sm rounded-xl border border-slate-300 bg-white min-w-0">
+        <option value="">Semua Desa</option>
+      </select>
+      <select id="viz-filter-sls" data-testid="viz-filter-sls" class="h-11 px-2.5 text-sm rounded-xl border border-slate-300 bg-white min-w-0">
+        <option value="">Semua SLS</option>
+      </select>
+      <select id="viz-filter-pml" data-testid="viz-filter-pml" class="h-11 px-2.5 text-sm rounded-xl border border-slate-300 bg-white min-w-0">
+        <option value="">Semua PML</option>
+      </select>
+      <select id="viz-filter-ppl" data-testid="viz-filter-ppl" class="h-11 px-2.5 text-sm rounded-xl border border-slate-300 bg-white min-w-0">
+        <option value="">Semua PPL</option>
+      </select>
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-2 mt-2">
+      <label class="flex items-center gap-2 text-sm text-slate-600 min-h-[44px] cursor-pointer">
+        <input id="viz-include-draft" data-testid="viz-include-draft" type="checkbox" class="w-5 h-5 accent-orange-600">
+        Sertakan draft
+      </label>
+      <div class="flex items-center gap-1">
+        <button id="viz-reload" data-testid="viz-reload" type="button"
+          class="h-11 px-3 rounded-xl text-sm font-medium text-slate-600 active:bg-slate-100">
+          Muat ulang
+        </button>
+        <button id="viz-reset" data-testid="viz-reset" type="button"
+          class="h-11 px-3 rounded-xl text-sm font-medium text-orange-700 active:bg-orange-50">
+          Reset filter
+        </button>
+      </div>
+    </div>
+    <!-- Chip filter nilai jawaban aktif (hasil klik bar/bin di chart) -->
+    <div id="viz-answer-chips" data-testid="viz-answer-chips" class="hidden flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-slate-100"></div>
+  </div>
+
+  <!-- Pemilih jenis kuesioner (butir pertanyaan usaha ≠ keluarga) -->
+  <div class="inline-flex rounded-xl border border-slate-300 bg-white p-1 mb-3" role="tablist" aria-label="Jenis kuesioner">
+    <button id="viz-jenis-usaha" data-testid="viz-jenis-usaha" type="button" role="tab"
+      class="h-10 px-5 rounded-lg text-sm font-semibold">Usaha</button>
+    <button id="viz-jenis-keluarga" data-testid="viz-jenis-keluarga" type="button" role="tab"
+      class="h-10 px-5 rounded-lg text-sm font-semibold">Keluarga</button>
+  </div>
+
+  <!-- Stat tiles: ringkasan slice terfilter -->
+  <div id="viz-tiles" data-testid="viz-tiles" class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-4"></div>
+
+  <!-- Loading pertama: skeleton. Refetch: kartu lama ditahan redup (tanpa
+       lompatan layout) — lihat setVizBusy di Index. -->
+  <div id="viz-loading" class="hidden space-y-2" aria-hidden="true">
+    <div class="skel h-24 rounded-xl"></div>
+    <div class="skel h-40 rounded-xl"></div>
+    <div class="skel h-40 rounded-xl"></div>
+  </div>
+  <div id="viz-error" data-testid="viz-error" class="hidden bg-white rounded-xl shadow-sm p-5 text-center">
+    <p class="text-sm text-slate-500 mb-3">Gagal memuat data dashboard — periksa koneksi lalu coba lagi.</p>
+    <button id="viz-retry" data-testid="viz-retry" type="button"
+      class="h-11 px-5 rounded-xl bg-orange-600 text-white text-sm font-semibold active:bg-orange-700">Coba lagi</button>
+  </div>
+  <p id="viz-empty" data-testid="viz-empty" class="hidden text-sm text-slate-400 text-center py-8">
+    Belum ada record pada pilihan filter ini.
+  </p>
+
+  <!-- Tanpa items-start: kartu sebaris saling meregang jadi sama tinggi;
+       daftar bar panjang scroll di dalam kartu (.viz-chart-scroll). -->
+  <div id="viz-cards" data-testid="viz-cards" class="grid grid-cols-1 lg:grid-cols-2 gap-3"></div>
+
+  <!-- Tooltip hover bersama untuk semua mark chart (diposisikan JS) -->
+  <div id="viz-tooltip" class="hidden fixed z-[80] max-w-[18rem] px-2.5 py-1.5 rounded-lg bg-slate-900 text-slate-50 text-xs leading-snug shadow-lg pointer-events-none whitespace-pre-line"></div>
+</section>
