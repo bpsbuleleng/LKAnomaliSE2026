@@ -22,15 +22,47 @@
 .viz-plot { border-bottom: 1px solid var(--viz-grid); }
 /* Angka yang harus rata vertikal (sel tabel, label count) */
 .viz-num { font-variant-numeric: tabular-nums; }
-/* Mark yang bisa diklik jadi filter + state filter AKTIF (dipilih) */
+/* Mark yang bisa diklik jadi filter + state filter AKTIF (dipilih).
+   State aktif dibuat KONTRAS: wash oranye-100 + garis kiri oranye pekat,
+   bar memakai step biru paling gelap ramp-nya, teks ikut menggelap. */
 [data-filterable] { cursor: pointer; }
-.viz-active { background: #fff7ed; border-radius: 6px; }           /* orange-50 */
-.viz-active .viz-bar, .viz-active .viz-col { background: var(--viz-s1-strong); }
-.viz-colwrap.viz-active { background: transparent; }
-.viz-colwrap.viz-active .viz-col { outline: 2px solid #fb923c; outline-offset: -1px; } /* orange-400 */
+.viz-active {
+  background: #ffedd5;                        /* orange-100 */
+  border-radius: 6px;
+  box-shadow: inset 3px 0 0 0 #ea580c;        /* garis kiri orange-600 */
+}
+.viz-active span { color: #7c2d12; font-weight: 600; }  /* orange-900 */
+.viz-active .viz-bar, .viz-active .viz-col { background: #104281; } /* biru step 650 */
+.viz-colwrap.viz-active {
+  background: #ffedd5;
+  border-radius: 4px 4px 0 0;
+  box-shadow: none;                           /* garis kiri tidak relevan di kolom */
+}
+.viz-colwrap.viz-active .viz-col { outline: 2px solid #ea580c; outline-offset: -1px; }
 /* Area chart di dalam kartu: tinggi seragam antar kartu sebaris — daftar bar
    panjang scroll ke dalam, bukan memanjangkan kartu. */
 .viz-chart-scroll { max-height: 15rem; overflow-y: auto; }
+/* Scrollbar area scroll dashboard (chart, tabel tabulasi, baris tab):
+   tersembunyi saat diam, muncul saat kursor di atasnya atau sedang scroll
+   (.viz-scrolling dipasang JS selama gulir berlangsung). */
+.viz-chart-scroll, .viz-scrollbox {
+  scrollbar-width: thin;                       /* Firefox */
+  scrollbar-color: transparent transparent;
+}
+.viz-chart-scroll:hover, .viz-scrollbox:hover,
+.viz-chart-scroll.viz-scrolling, .viz-scrollbox.viz-scrolling {
+  scrollbar-color: #cbd5e1 transparent;        /* slate-300 */
+}
+.viz-chart-scroll::-webkit-scrollbar, .viz-scrollbox::-webkit-scrollbar { width: 8px; height: 8px; }
+.viz-chart-scroll::-webkit-scrollbar-track, .viz-scrollbox::-webkit-scrollbar-track { background: transparent; }
+.viz-chart-scroll::-webkit-scrollbar-thumb, .viz-scrollbox::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 8px;
+}
+.viz-chart-scroll:hover::-webkit-scrollbar-thumb, .viz-scrollbox:hover::-webkit-scrollbar-thumb,
+.viz-chart-scroll.viz-scrolling::-webkit-scrollbar-thumb, .viz-scrollbox.viz-scrolling::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
 </style>
 
 <!-- TANPA class hidden: ini halaman awal — tampil sebelum JS jalan supaya
@@ -51,7 +83,7 @@
        tabulasi ikut slice yang sama). Opsi diisi dinamis dari record termuat
        dan bertingkat (Desa ikut Kecamatan, SLS ikut Desa). -->
   <div class="bg-white rounded-xl shadow-sm p-3 mb-3">
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
       <select id="viz-filter-kec" data-testid="viz-filter-kec" class="h-11 px-2.5 text-sm rounded-xl border border-slate-300 bg-white min-w-0">
         <option value="">Semua Kecamatan</option>
       </select>
@@ -66,6 +98,9 @@
       </select>
       <select id="viz-filter-ppl" data-testid="viz-filter-ppl" class="h-11 px-2.5 text-sm rounded-xl border border-slate-300 bg-white min-w-0">
         <option value="">Semua PPL</option>
+      </select>
+      <select id="viz-filter-anomali" data-testid="viz-filter-anomali" class="h-11 px-2.5 text-sm rounded-xl border border-slate-300 bg-white min-w-0">
+        <option value="">Semua Anomali</option>
       </select>
     </div>
     <div class="flex flex-wrap items-center justify-between gap-2 mt-2">

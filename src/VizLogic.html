@@ -111,9 +111,12 @@ var VizLogic = (function () {
   }
 
   /**
-   * filters = { jenis, includeDraft, kdkec, kddesa, kdsls, pml, ppl,
+   * filters = { jenis, includeDraft, kdkec, kddesa, kdsls, pml, ppl, anomali,
    *             answers: [filter nilai jawaban...] }
    * (string kosong = tidak memfilter; pml/ppl memakai pmlKey/pplKey).
+   * anomali: '__any__' = punya anomali, '__none__' = bersih (0 anomali;
+   * catatan: draft belum diperiksa rule jadi ikut lolos '__none__' kalau
+   * includeDraft aktif), selain itu = rule_id spesifik (mis. 'U1').
    */
   function matchesFilters(rec, f) {
     f = f || {};
@@ -125,6 +128,16 @@ var VizLogic = (function () {
     if (f.kdsls && s(w.kdsls) !== f.kdsls) return false;
     if (f.pml && pmlKey(rec) !== f.pml) return false;
     if (f.ppl && pplKey(rec) !== f.ppl) return false;
+    if (f.anomali) {
+      var an = rec.anomalies || [];
+      if (f.anomali === '__none__') {
+        if (an.length > 0) return false;
+      } else if (f.anomali === '__any__') {
+        if (an.length === 0) return false;
+      } else if (!an.some(function (a) { return s(a.rule_id) === f.anomali; })) {
+        return false;
+      }
+    }
     if (!matchesAnswerFilters(rec, f.answers)) return false;
     return true;
   }
@@ -143,7 +156,7 @@ var VizLogic = (function () {
   function filterOptions(records, f) {
     f = f || {};
     var scoped = filterRecords(records, { jenis: f.jenis, includeDraft: f.includeDraft });
-    var kec = {}, desa = {}, sls = {}, pml = {}, ppl = {};
+    var kec = {}, desa = {}, sls = {}, pml = {}, ppl = {}, anomali = {};
     scoped.forEach(function (rec) {
       var w = rec.wilayah || {};
       if (s(w.kdkec)) kec[s(w.kdkec)] = s(w.nmkec);
@@ -155,6 +168,9 @@ var VizLogic = (function () {
       if (inSls) {
         if (pmlKey(rec)) pml[pmlKey(rec)] = s(w.nmpml) || pmlKey(rec);
         if (pplKey(rec)) ppl[pplKey(rec)] = s(w.nmppl) || pplKey(rec);
+        (rec.anomalies || []).forEach(function (a) {
+          if (s(a.rule_id)) anomali[s(a.rule_id)] = s(a.message);
+        });
       }
     });
     function byKode(map) {
@@ -165,7 +181,10 @@ var VizLogic = (function () {
         .map(function (k) { return { kode: k, nama: map[k] }; })
         .sort(function (a, b) { return a.nama < b.nama ? -1 : a.nama > b.nama ? 1 : 0; });
     }
-    return { kec: byKode(kec), desa: byKode(desa), sls: byKode(sls), pml: byNama(pml), ppl: byNama(ppl) };
+    return {
+      kec: byKode(kec), desa: byKode(desa), sls: byKode(sls),
+      pml: byNama(pml), ppl: byNama(ppl), anomali: byKode(anomali)
+    };
   }
 
   /** Ringkasan stat tile atas scope jenis+wilayah+petugas (status TIDAK ikut
@@ -175,7 +194,7 @@ var VizLogic = (function () {
     var scope = filterRecords(records, {
       jenis: f.jenis, includeDraft: true,
       kdkec: f.kdkec, kddesa: f.kddesa, kdsls: f.kdsls, pml: f.pml, ppl: f.ppl,
-      answers: f.answers
+      anomali: f.anomali, answers: f.answers
     });
     var out = { total: scope.length, submitted: 0, draft: 0, anomali: 0 };
     scope.forEach(function (rec) {

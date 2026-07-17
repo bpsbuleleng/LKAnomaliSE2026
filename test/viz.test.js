@@ -49,6 +49,8 @@ test('VizData.forDashboard: ringkas record + anomali_count, kode wilayah tetap s
   }]);
   assert.equal(out.length, 1);
   assert.equal(out[0].anomali_count, 2);
+  // identitas anomali ikut (dipakai filter per anomali di dashboard)
+  assert.deepEqual(out[0].anomalies.map((a) => a.rule_id), ['U2', 'U9']);
   assert.equal(out[0].wilayah.kdkec, '010');
   assert.deepEqual(out[0].answers, { r25: 2019 });
   assert.equal(out[0].record_id, undefined); // payload ramping: tanpa identitas record
@@ -91,6 +93,42 @@ test('filterOptions: desa dibatasi kecamatan terpilih; kode desa sama beda kecam
   assert.deepEqual(scoped.desa.map((o) => o.nama).sort(), ['Sumberkima', 'Sumberklampok']);
   const seririt = VizLogic.filterOptions(records, { kdkec: '020' });
   assert.deepEqual(seririt.desa.map((o) => o.nama), ['Lokapaksa']);
+});
+
+test('filter anomali: __any__/__none__/rule_id spesifik', () => {
+  const bersih = rec({});
+  const kena = rec({ anomali_count: 2, anomalies: [{ rule_id: 'K1', severity: 'error', message: 'Status Cerai/Belum Kawin: x' }, { rule_id: 'K7', severity: 'warning', message: 'Jumlah Anggota Keluarga Ekstrem: y' }] });
+  assert.equal(VizLogic.matchesFilters(bersih, { anomali: '__none__' }), true);
+  assert.equal(VizLogic.matchesFilters(kena, { anomali: '__none__' }), false);
+  assert.equal(VizLogic.matchesFilters(bersih, { anomali: '__any__' }), false);
+  assert.equal(VizLogic.matchesFilters(kena, { anomali: '__any__' }), true);
+  assert.equal(VizLogic.matchesFilters(kena, { anomali: 'K1' }), true);
+  assert.equal(VizLogic.matchesFilters(kena, { anomali: 'K5' }), false);
+});
+
+test('filterOptions: daftar anomali dari record se-scope wilayah, urut rule_id', () => {
+  const records = [
+    rec({ anomalies: [{ rule_id: 'K7', severity: 'warning', message: 'K7 msg' }] }),
+    rec({ anomalies: [{ rule_id: 'K1', severity: 'error', message: 'K1 msg' }] }),
+    rec({
+      wilayah: { kdkec: '020', nmkec: 'Seririt' },
+      anomalies: [{ rule_id: 'K5', severity: 'warning', message: 'K5 msg' }]
+    })
+  ];
+  const all = VizLogic.filterOptions(records, {});
+  assert.deepEqual(all.anomali.map((o) => o.kode), ['K1', 'K5', 'K7']);
+  // scope kecamatan 010 → K5 (milik Seririt) tidak ikut
+  const scoped = VizLogic.filterOptions(records, { kdkec: '010' });
+  assert.deepEqual(scoped.anomali.map((o) => o.kode), ['K1', 'K7']);
+});
+
+test('summary ikut menghormati filter anomali', () => {
+  const records = [
+    rec({ anomali_count: 1, anomalies: [{ rule_id: 'K1', severity: 'error', message: 'x' }] }),
+    rec({})
+  ];
+  const s = VizLogic.summary(records, { jenis: 'keluarga', anomali: 'K1' });
+  assert.deepEqual(s, { total: 1, submitted: 1, draft: 0, anomali: 1 });
 });
 
 test('summary: pecah submitted/draft + total anomali submitted saja', () => {

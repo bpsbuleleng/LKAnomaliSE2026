@@ -20,10 +20,12 @@ test('halaman awal = dashboard visualisasi: filter row, tile, dan kartu/empty-st
   await expect(f.getByTestId('viz-view')).toBeVisible();
   await expect(f.getByTestId('login-email')).toBeHidden();
 
-  // Baris filter lengkap: kecamatan, desa, sls, pml, ppl (+ draft toggle).
-  for (const id of ['viz-filter-kec', 'viz-filter-desa', 'viz-filter-sls', 'viz-filter-pml', 'viz-filter-ppl', 'viz-include-draft']) {
+  // Baris filter lengkap: kecamatan, desa, sls, pml, ppl, anomali (+ draft toggle).
+  for (const id of ['viz-filter-kec', 'viz-filter-desa', 'viz-filter-sls', 'viz-filter-pml', 'viz-filter-ppl', 'viz-filter-anomali', 'viz-include-draft']) {
     await expect(f.getByTestId(id)).toBeVisible();
   }
+  // Opsi tetap select anomali selalu ada (daftar rule menyusul dari data).
+  await expect(f.getByTestId('viz-filter-anomali').locator('option[value="__none__"]')).toHaveCount(1);
 
   // Tile ringkasan render setelah data termuat dari server.
   await expect(f.getByTestId('viz-tile-total')).toBeVisible({ timeout: 60000 });

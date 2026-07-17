@@ -26,7 +26,12 @@ var VizData = (function () {
           emailppl: s(w.emailppl), emailpml: s(w.emailpml)
         },
         answers: r.answers || {},
-        anomali_count: (r.anomalies || []).length
+        anomali_count: (r.anomalies || []).length,
+        // Identitas anomali (bukan cuma jumlah) — dipakai filter "per anomali"
+        // di dashboard; bentuk minimal, sama dengan RecordLogic.summarize.
+        anomalies: (r.anomalies || []).map(function (a) {
+          return { rule_id: s(a.rule_id), severity: s(a.severity), message: s(a.message) };
+        })
       };
     });
   }

@@ -1384,7 +1384,7 @@
       // answers = filter nilai jawaban hasil klik bar/bin chart (chips);
       // tiap item punya `label` untuk teks chip — identitas toggle-nya
       // VizLogic.sameAnswerFilter (label diabaikan).
-      filters: { kdkec: '', kddesa: '', kdsls: '', pml: '', ppl: '', includeDraft: false, answers: [] },
+      filters: { kdkec: '', kddesa: '', kdsls: '', pml: '', ppl: '', anomali: '', includeDraft: false, answers: [] },
       openTab: {},     // question_id -> dim tabulasi yang panelnya terbuka
       kbliFetching: false // guard fetch daftar judul KBLI (sekali per sesi)
     };
@@ -1394,7 +1394,7 @@
       return {
         jenis: Viz.jenis, includeDraft: f.includeDraft,
         kdkec: f.kdkec, kddesa: f.kddesa, kdsls: f.kdsls, pml: f.pml, ppl: f.ppl,
-        answers: f.answers
+        anomali: f.anomali, answers: f.answers
       };
     }
 
@@ -1555,7 +1555,30 @@
       }
       f.pml = vizRebuildSelect('viz-filter-pml', opts.pml, f.pml, 'Semua PML', vizNamaLabel);
       f.ppl = vizRebuildSelect('viz-filter-ppl', opts.ppl, f.ppl, 'Semua PPL', vizNamaLabel);
+      f.anomali = vizRebuildAnomaliSelect(opts.anomali, f.anomali);
       el('viz-include-draft').checked = f.includeDraft;
+    }
+
+    // Select anomali punya 2 opsi tetap ("Ada"/"Tidak ada") di atas daftar
+    // rule yang benar-benar muncul di data. Label opsi rule = rule_id + judul
+    // anomali (bagian message sebelum ':'); message penuh di title opsi.
+    function vizRebuildAnomaliSelect(list, keep) {
+      var sel = el('viz-filter-anomali');
+      sel.innerHTML = '';
+      sel.appendChild(new Option('Semua Anomali', ''));
+      sel.appendChild(new Option('Ada anomali', '__any__'));
+      sel.appendChild(new Option('Tidak ada anomali', '__none__'));
+      (list || []).forEach(function (o) {
+        var judul = o.nama.indexOf(':') !== -1 ? o.nama.slice(0, o.nama.indexOf(':')) : o.nama;
+        var opt = new Option(o.kode + ' — ' + judul, o.kode);
+        opt.title = o.nama;
+        sel.appendChild(opt);
+      });
+      if (keep === '__any__' || keep === '__none__' ||
+          (list || []).some(function (o) { return o.kode === keep; })) {
+        sel.value = keep;
+      }
+      return sel.value;
     }
 
     // ---- render utama ----
@@ -1682,7 +1705,11 @@
       lbl.textContent = 'Kategori KBLI:';
       var sel = document.createElement('select');
       sel.setAttribute('data-testid', 'viz-kbli-kategori');
-      sel.className = 'h-9 px-2 text-xs rounded-lg border border-slate-300 bg-white min-w-0';
+      // Saat sebuah kategori terpilih (filter menyala) select ikut kontras —
+      // senada dengan state .viz-active pada bar.
+      sel.className = current
+        ? 'h-9 px-2 text-xs rounded-lg border-2 border-orange-600 bg-orange-100 text-orange-900 font-semibold min-w-0'
+        : 'h-9 px-2 text-xs rounded-lg border border-slate-300 bg-white min-w-0';
       sel.appendChild(new Option('Semua kategori', ''));
       Object.keys(counts).sort().forEach(function (k) {
         sel.appendChild(new Option(k + ' (' + counts[k] + ')', k));
@@ -1952,7 +1979,7 @@
       panel.innerHTML = '';
       var dim = Viz.openTab[q.question_id] || 'kec';
       var tabs = document.createElement('div');
-      tabs.className = 'flex gap-1 overflow-x-auto pb-1';
+      tabs.className = 'viz-scrollbox flex gap-1 overflow-x-auto pb-1';
       VizLogic.DIMS.forEach(function (d) {
         var b = document.createElement('button');
         b.type = 'button';
@@ -1977,7 +2004,7 @@
       (q.options || []).forEach(function (o) { optionLabel[String(o.value)] = o.label; });
 
       var box = document.createElement('div');
-      box.className = 'overflow-x-auto max-h-72 overflow-y-auto border border-slate-100 rounded-lg mt-1';
+      box.className = 'viz-scrollbox overflow-x-auto max-h-72 overflow-y-auto border border-slate-100 rounded-lg mt-1';
       var table = document.createElement('table');
       table.className = 'min-w-full text-xs';
       table.setAttribute('data-testid', 'viz-table');
@@ -2058,6 +2085,7 @@
         Viz.filters.kdsls = '';
         Viz.filters.pml = '';
         Viz.filters.ppl = '';
+        Viz.filters.anomali = '';
         Viz.filters.answers = [];
         renderViz();
       });
@@ -2066,7 +2094,8 @@
         ['viz-filter-desa', 'kddesa', ['kdsls']],
         ['viz-filter-sls', 'kdsls', []],
         ['viz-filter-pml', 'pml', []],
-        ['viz-filter-ppl', 'ppl', []]
+        ['viz-filter-ppl', 'ppl', []],
+        ['viz-filter-anomali', 'anomali', []]
       ].forEach(function (def) {
         el(def[0]).addEventListener('change', function () {
           Viz.filters[def[1]] = el(def[0]).value;
@@ -2126,6 +2155,18 @@
       // Mark diklik (jadi filter) → chart dirender ulang; sembunyikan supaya
       // tooltip tidak "menggantung" tanpa mark di bawah kursor.
       box.addEventListener('click', function () { tip.classList.add('hidden'); });
+
+      // Scrollbar "muncul saat dipakai": tandai kontainer yang sedang digulir
+      // dengan .viz-scrolling (dilepas 800ms setelah gulir berhenti). Event
+      // scroll tidak bubble — pakai fase capture di container kartu.
+      box.addEventListener('scroll', function (ev) {
+        var t = ev.target;
+        if (!t || !t.classList) return;
+        if (!t.classList.contains('viz-chart-scroll') && !t.classList.contains('viz-scrollbox')) return;
+        t.classList.add('viz-scrolling');
+        clearTimeout(t._vizScrollTimer);
+        t._vizScrollTimer = setTimeout(function () { t.classList.remove('viz-scrolling'); }, 800);
+      }, true);
     }
 
     // ==== FAB scroll-to-top ====
