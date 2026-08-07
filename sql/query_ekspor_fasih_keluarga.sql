@@ -1,32 +1,33 @@
 /* =============================================================================
-   EKSPOR STAGING FASIH — "FASIH Keluarga"  (root_table, Dokumen P)  — QUERY A
+   EKSPOR STAGING FASIH — "FASIH Keluarga"  (root_table, Dokumen P)
    -----------------------------------------------------------------------------
    Superset SQL Lab · DB "Starrocks SE 2026" (25) · schema tgr_fd68e454.
    Output kolom = header tab staging "FASIH Keluarga". 1 baris = 1 assignment.
+   SATU query untuk semua K1-K7 (tidak perlu file terpisah) — lihat catatan K1/K3
+   di bawah untuk kenapa cakupannya proxy longgar, bukan filter presisi.
 
-   Cakupan: HANYA assignment yang ter-flag K2, K4, K5, K6 ATAU K7 (rekonsiliasi
-   ke aplikasi — K6 AND 4 syarat). Aplikasi MENGHITUNG ULANG anomalinya sendiri
-   saat impor; query ini hanya menyaring assignment yang perlu diimpor.
+   Cakupan K2, K4, K5, K6, K7: presisi (rekonsiliasi ke aplikasi — K6 AND 4
+   syarat). Cakupan K1 & K3: PROXY `jumlah_ak >= 2` (cabang `flag_k1k3_proxy`),
+   BUKAN filter presisi — lihat alasan di bawah.
 
-   PENTING — QUERY A + QUERY B (2 file, WAJIB keduanya):
-   K1 & K3 SENGAJA TIDAK ADA di sini — dipisah ke query_ekspor_fasih_keluarga_
-   k1k3.sql (Query B, cuma daftar assignment_id, TANPA kolom detail). Alasan:
-   StarRocks planner gagal ("Invalid plan" / Issue 1002, region_full_code) kalau
-   UNION ALL mencampur cabang bersumber root_table (K2/K4/K5/K6/K7) dengan
-   cabang bersumber nested_dtsen/nested_dtsen_var (K1/K3) dalam SATU query —
-   diverifikasi lewat isolasi bertahap 2026-08-07 (union sesama-rumpun tabel
-   selalu berhasil, union lintas-rumpun selalu gagal, terlepas jumlah cabang).
-   Bukan bug logika — SEMUA 7 cabang individual & pasangan sesama-rumpun sudah
-   dites berhasil.
-
-   CARA GABUNG: jalankan Query A → CSV A. Jalankan Query B → CSV B (cuma kolom
-   assignment_id). Assignment_id di CSV B yang TIDAK ADA di CSV A perlu baris
-   detail tambahan — ambil dari CSV A punya assignment_id lain (union manual di
-   spreadsheet: paste CSV A ke staging dulu, lalu utk assignment_id CSV B yang
-   belum ada, tambahkan baris manual dgn VLOOKUP ke query detail terpisah kalau
-   perlu, ATAU — cara lebih sederhana — jalankan Query C (di bawah, opsional)
-   yang isinya kolom detail LENGKAP tanpa filter (semua assignment_id di CSV B)
-   supaya tidak perlu VLOOKUP. Lihat TUTORIAL_IMPOR_FASIH.md §1 utk urutan pasti.
+   KENAPA K1/K3 PROXY, BUKAN PRESISI: K1 & K3 butuh data dari `nested_dtsen`/
+   `nested_dtsen_var` (posisi AK-1/AK-2, status disabilitas per anggota), tapi
+   StarRocks planner GAGAL ("Invalid plan" / Issue 1002, region_full_code —
+   bukan kolom kita, artefak internal planner) begitu `root_table` dan
+   `nested_dtsen*` muncul BERSAMA dalam satu statement, apa pun bentuk relasinya
+   (UNION, JOIN, WHERE IN, EXISTS — semua dicoba & gagal identik, diverifikasi
+   2026-08-07). Assignment_id K1/K3 juga TIDAK bisa di-hardcode sebagai literal
+   list permanen — data FASIH terus bertambah, snapshot id akan basi. Solusi:
+   proxy `jumlah_ak >= 2` — baik K1 (butuh AK-1 & AK-2) maupun K3 (butuh
+   jumlah_ak > 1) SELALU muncul di keluarga ≥2 anggota, jadi hasilnya SUPERSET
+   K1∪K3 (bukan filter presis). Ini AMAN: `DataAccess.importFasih` MENGHITUNG
+   ULANG anomali tiap record via `RuleEvaluator` terhadap SEMUA 16 rule (bukan
+   menyalin flag SQL) — assignment yang lolos proxy ini tapi ternyata tidak
+   kena K1/K3 tetap diimpor tanpa error, hasil akhirnya cuma tidak ber-anomali
+   K1/K3 (atau tetap ber-anomali kalau kena rule lain). Konsekuensinya:
+   beberapa record "bersih" (jumlah_ak≥2 tapi anomalies=[]) ikut terimpor di
+   luar assignment yang sengaja ter-flag — bukan bug, cuma cakupan sedikit
+   lebih luas dari "assignment yang ter-flag anomali".
 
    Uang di-CAST ke BIGINT (CSV berisi integer polos tanpa pemisah ribuan) supaya
    parser aplikasi tidak salah baca. Dialek StarRocks: `||` = OR — sambung
@@ -104,6 +105,9 @@ param AS (
 , flag_k7 AS (
   SELECT k.assignment_id FROM kel k CROSS JOIN param p WHERE k.jumlah_ak > p.p_jml_ak_k7
 )
+, flag_k1k3_proxy AS (   /* superset longgar K1∪K3 — lihat catatan di atas */
+  SELECT k.assignment_id FROM kel k WHERE k.jumlah_ak >= 2
+)
 , flagged AS (
   SELECT DISTINCT assignment_id FROM (
       SELECT assignment_id FROM flag_k2
@@ -115,6 +119,8 @@ param AS (
       SELECT assignment_id FROM flag_k6
     UNION ALL
       SELECT assignment_id FROM flag_k7
+    UNION ALL
+      SELECT assignment_id FROM flag_k1k3_proxy
   ) t
 )
 SELECT

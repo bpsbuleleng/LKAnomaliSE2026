@@ -6,8 +6,7 @@ hasilnya ke file**, lalu paste ke tab staging di spreadsheet aplikasi. Aplikasi
 yang merakit record + **menghitung ulang anomali sendiri** (bukan menyalin dari
 SQL) saat impor.
 
-Ringkas: **5 query (usaha, keluarga 2a+2b, roster AK, roster meteran) → 5 CSV
-→ 4 tab staging (keluarga 2a+2b digabung di 1 tab) → 1 tombol impor.**
+Ringkas: **4 query → 4 CSV → 4 tab staging → 1 tombol impor.**
 
 ---
 
@@ -37,49 +36,40 @@ menjaga leading zero `kbli_akhir`/`kode_wilayah`). Header baris-1 sudah terisi;
 
 ---
 
-## 1. Jalankan query di SQL Lab & simpan hasilnya ke file
+## 1. Jalankan 4 query di SQL Lab & simpan hasilnya ke file
 
 Buka [https://fasih-dashboard.bps.go.id/superset/sqllab/](https://fasih-dashboard.bps.go.id/superset/sqllab/) → DB **"Starrocks SE
 2026"**. Jalankan **satu per satu** (beri jeda beberapa detik antar-query supaya
 tidak kena "Bot Detected"):
 
-| No | File query                                    | Simpan hasil sebagai         | Isi                                              |
-| -- | --------------------------------------------- | ---------------------------- | ------------------------------------------------ |
-| 1  | `sql/query_ekspor_fasih_usaha.sql`          | `fasih_usaha.csv`          | 1 baris / unit usaha ter-flag U1–U7             |
-| 2a | `sql/query_ekspor_fasih_keluarga.sql`       | `fasih_keluarga_a.csv`     | 1 baris / keluarga ter-flag K2, K4, K5, K6, atau K7 |
-| 2b-1 | `sql/query_ekspor_fasih_keluarga_k1k3_langkah1_id.sql` | `export/langkah1_id.csv` | daftar `assignment_id` ter-flag K1 atau K3 (4350 baris, 2026-08-07) |
-| 2b-2 | `sql/query_ekspor_fasih_keluarga_k1k3_batch1.sql` .. `batch4.sql` (sudah diisi) | `fasih_keluarga_b1.csv` .. `b4.csv` | 1 baris / keluarga ter-flag K1 atau K3, kolom lengkap |
-| 3  | `sql/query_ekspor_fasih_roster_ak.sql`      | `fasih_roster_ak.csv`      | 1 baris / anggota keluarga (assignment ter-flag) |
-| 4  | `sql/query_ekspor_fasih_roster_meteran.sql` | `fasih_roster_meteran.csv` | 1 baris / meteran (assignment ter-flag)          |
+| No | File query | Simpan hasil sebagai | Isi |
+|----|------------|----------------------|-----|
+| 1 | `sql/query_ekspor_fasih_usaha.sql` | `fasih_usaha.csv` | 1 baris / unit usaha ter-flag U1–U7 |
+| 2 | `sql/query_ekspor_fasih_keluarga.sql` | `fasih_keluarga.csv` | 1 baris / keluarga ter-flag K2/K4/K5/K6/K7 presisi + K1/K3 proxy (lihat catatan) |
+| 3 | `sql/query_ekspor_fasih_roster_ak.sql` | `fasih_roster_ak.csv` | 1 baris / anggota keluarga (assignment ter-flag) |
+| 4 | `sql/query_ekspor_fasih_roster_meteran.sql` | `fasih_roster_meteran.csv` | 1 baris / meteran (assignment ter-flag) |
 
 Cara menyimpan di SQL Lab: setelah hasil muncul, klik **"Download to CSV"**
-(atau ikon unduh di panel Results). Simpan semuanya di komputer dulu — inilah
+(atau ikon unduh di panel Results). Simpan keempatnya di komputer dulu — inilah
 "file" tempat kamu bisa memeriksa/menambah data manual sebelum masuk spreadsheet.
 
-**Kenapa query keluarga jadi 3 langkah (2a, 2b-1, 2b-2), bukan 1 seperti usaha/roster?**
-StarRocks SQL Lab menolak plan ("Invalid plan" / Issue 1002) begitu `root_table`
-dan `nested_dtsen`/`nested_dtsen_var` muncul BERSAMA dalam satu statement SQL —
-sudah dicoba lewat `UNION ALL`, `JOIN`, `WHERE IN`, dan `EXISTS`, SEMUANYA gagal
-identik. Bug/keterbatasan optimizer, bukan salah logika rule (diverifikasi
-lewat isolasi bertahap 2026-08-07). Karena itu K1/K3 (sumber `nested_dtsen*`)
-harus benar-benar dipisah jadi 2 langkah manual dari K2/K4/K5/K6/K7 (sumber
-`root_table`, itulah query 2a):
+**Catatan soal cakupan K1/K3 di query keluarga.** K1 & K3 butuh data dari
+`nested_dtsen`/`nested_dtsen_var`, tapi StarRocks planner GAGAL ("Invalid plan"
+/ Issue 1002) begitu `root_table` dan `nested_dtsen*` muncul bersama dalam satu
+statement — dicoba lewat `UNION ALL`, `JOIN`, `WHERE IN`, `EXISTS`, semuanya
+gagal identik (bug/keterbatasan optimizer, diverifikasi 2026-08-07; assignment
+id juga tidak bisa di-hardcode karena data FASIH terus bertambah). Solusinya:
+query mengambil K1/K3 lewat **proxy longgar** `jumlah_ak >= 2` (cabang
+`flag_k1k3_proxy` di file query) — superset dari assignment K1∪K3 yang
+sesungguhnya, bukan filter presisi. Ini aman karena `DataAccess.importFasih`
+menghitung ulang anomali tiap record via `RuleEvaluator` terhadap semua 16
+rule (bukan menyalin flag SQL); assignment yang lolos proxy tapi ternyata
+tidak kena K1/K3 tetap diimpor tanpa error — hasilnya cuma tidak ber-anomali
+K1/K3 (atau tetap ber-anomali kalau kena rule lain). Konsekuensinya, cakupan
+ekspor sedikit lebih luas dari "assignment yang ter-flag anomali" — beberapa
+keluarga ≥2 anggota yang sebenarnya "bersih" ikut terimpor.
 
-1. Jalankan **langkah1_id.sql** (murni dari `nested_dtsen*`, tidak sentuh
-   `root_table` sama sekali) → hasilnya daftar `assignment_id`. **Sudah
-   dijalankan 2026-08-07**: 4350 baris, disimpan sebagai `export/langkah1_id.csv`
-   (di luar git, lihat `.gitignore`).
-2. Daftar id itu **sudah dipecah 4 batch (~1100 id masing-masing)** dan
-   ditempel ke placeholder `{{ID_LIST}}` — hasilnya 4 file siap-jalan:
-   `sql/query_ekspor_fasih_keluarga_k1k3_batch1.sql` s.d. `batch4.sql`. Tidak
-   perlu diedit lagi, tinggal dijalankan.
-   *(Kalau nanti perlu bikin batch baru dari daftar id yang beda — mis. data
-   terbaru — tempel daftar id ke chat Claude Code, minta diisikan ke
-   **langkah2_detail.sql**.)*
-3. Jalankan **keempat file batch** itu satu-satu di SQL Lab → simpan hasilnya
-   sebagai `fasih_keluarga_b1.csv`, `_b2.csv`, `_b3.csv`, `_b4.csv`.
-
-**Catatan penting saat menjalankan query:**
+**Catatan penting lain saat menjalankan query:**
 
 - Query hanya menyaring **assignment yang ter-flag anomali** (~puluhan ribu),
   bukan seluruh Buleleng — supaya ukuran wajar.
@@ -109,14 +99,6 @@ Untuk tiap file:
 > Alternatif cepat (kalau yakin tidak ada leading zero bermasalah): copy dari
 > CSV lalu **Paste special → Values only** di A2. Tapi **Import + convert=NO**
 > lebih aman untuk kolom kode.
-
-**Khusus tab FASIH Keluarga (5 file: 2a + b1..b4):** import `fasih_keluarga_a.csv`
-dulu ke A2 seperti biasa. Untuk tiap `fasih_keluarga_b{1..4}.csv` berikutnya,
-ulangi langkah 3 tapi klik sel **A(n+2)** dulu — `n` = jumlah baris data yang
-SUDAH ada di tab (misal 2a punya 500 baris, klik A502 untuk b1; kalau b1 lalu
-menambah 1100 baris lagi, b2 mulai dari A1602; dst) — supaya **APPEND**,
-bukan menimpa baris sebelumnya. Boleh ada `assignment_id` yang sama muncul
-di beberapa bagian, aman (lihat §1).
 
 Boleh mengoreksi/menambah baris manual di tab staging sebelum impor — isinya
 baru dibaca aplikasi saat langkah 3.
