@@ -37,7 +37,7 @@ menjaga leading zero `kbli_akhir`/`kode_wilayah`). Header baris-1 sudah terisi;
 
 ---
 
-## 1. Jalankan 5 query di SQL Lab & simpan hasilnya ke file
+## 1. Jalankan query di SQL Lab & simpan hasilnya ke file
 
 Buka [https://fasih-dashboard.bps.go.id/superset/sqllab/](https://fasih-dashboard.bps.go.id/superset/sqllab/) → DB **"Starrocks SE
 2026"**. Jalankan **satu per satu** (beri jeda beberapa detik antar-query supaya
@@ -47,7 +47,8 @@ tidak kena "Bot Detected"):
 | -- | --------------------------------------------- | ---------------------------- | ------------------------------------------------ |
 | 1  | `sql/query_ekspor_fasih_usaha.sql`          | `fasih_usaha.csv`          | 1 baris / unit usaha ter-flag U1–U7             |
 | 2a | `sql/query_ekspor_fasih_keluarga.sql`       | `fasih_keluarga_a.csv`     | 1 baris / keluarga ter-flag K2, K4, K5, K6, atau K7 |
-| 2b | `sql/query_ekspor_fasih_keluarga_k1k3.sql`  | `fasih_keluarga_b.csv`     | 1 baris / keluarga ter-flag K1 atau K3           |
+| 2b-1 | `sql/query_ekspor_fasih_keluarga_k1k3_langkah1_id.sql` | (tidak disimpan, lihat di bawah) | daftar `assignment_id` ter-flag K1 atau K3 |
+| 2b-2 | `sql/query_ekspor_fasih_keluarga_k1k3_langkah2_detail.sql` (perlu diisi dulu) | `fasih_keluarga_b.csv` | 1 baris / keluarga ter-flag K1 atau K3, kolom lengkap |
 | 3  | `sql/query_ekspor_fasih_roster_ak.sql`      | `fasih_roster_ak.csv`      | 1 baris / anggota keluarga (assignment ter-flag) |
 | 4  | `sql/query_ekspor_fasih_roster_meteran.sql` | `fasih_roster_meteran.csv` | 1 baris / meteran (assignment ter-flag)          |
 
@@ -55,16 +56,28 @@ Cara menyimpan di SQL Lab: setelah hasil muncul, klik **"Download to CSV"**
 (atau ikon unduh di panel Results). Simpan semuanya di komputer dulu — inilah
 "file" tempat kamu bisa memeriksa/menambah data manual sebelum masuk spreadsheet.
 
-**Kenapa query keluarga jadi 2 file (2a + 2b), bukan 1 seperti usaha/roster?**
-StarRocks SQL Lab menolak plan gabungan ("Invalid plan" / Issue 1002) kalau
-`UNION ALL` mencampur rule bersumber tabel `root_table` (K2/K4/K5/K6/K7) dengan
-rule bersumber `nested_dtsen`/`nested_dtsen_var` (K1/K3) dalam satu query —
-bug/keterbatasan optimizer, sudah diverifikasi lewat isolasi bertahap
-2026-08-07 (bukan salah logika rule). **Kolomnya identik** di 2a dan 2b, tinggal
-digabung: paste 2a dulu ke tab staging, lalu **APPEND** (tempel di baris
-kosong berikutnya, JANGAN timpa) hasil 2b di bawahnya — boleh ada
-assignment_id yang sama muncul di keduanya (aplikasi upsert per
-`assignment_id` saat impor, aman).
+**Kenapa query keluarga jadi 3 langkah (2a, 2b-1, 2b-2), bukan 1 seperti usaha/roster?**
+StarRocks SQL Lab menolak plan ("Invalid plan" / Issue 1002) begitu `root_table`
+dan `nested_dtsen`/`nested_dtsen_var` muncul BERSAMA dalam satu statement SQL —
+sudah dicoba lewat `UNION ALL`, `JOIN`, `WHERE IN`, dan `EXISTS`, SEMUANYA gagal
+identik. Bug/keterbatasan optimizer, bukan salah logika rule (diverifikasi
+lewat isolasi bertahap 2026-08-07). Karena itu K1/K3 (sumber `nested_dtsen*`)
+harus benar-benar dipisah jadi 2 langkah manual dari K2/K4/K5/K6/K7 (sumber
+`root_table`, itulah query 2a):
+
+1. Jalankan **langkah1_id.sql** (murni dari `nested_dtsen*`, tidak sentuh
+   `root_table` sama sekali) → hasilnya daftar `assignment_id` (~4300-an baris
+   berdasar hasil dites 2026-08-07, bisa beda tergantung data terbaru).
+   Copy SEMUA nilai kolom `assignment_id` (dari panel Results, atau download
+   CSV lalu buka di editor teks/spreadsheet untuk ambil kolomnya).
+2. Tempel daftar id itu ke chat Claude Code — minta Claude mengisi placeholder
+   `{{ID_LIST}}` di **langkah2_detail.sql** dengan literal list
+   (`'id1','id2',...`), lalu simpan sebagai file baru/menimpa. Kalau daftar id
+   sangat panjang, Claude mungkin membaginya jadi beberapa batch file — jalankan
+   tiap batch terpisah, simpan CSV terpisah, semuanya tetap di-append ke tab
+   staging yang sama di langkah 2 bawah.
+3. Jalankan file yang sudah diisi itu di SQL Lab → simpan hasilnya sebagai
+   `fasih_keluarga_b.csv` (atau `_b1.csv`, `_b2.csv`, ... kalau dibagi batch).
 
 **Catatan penting saat menjalankan query:**
 
