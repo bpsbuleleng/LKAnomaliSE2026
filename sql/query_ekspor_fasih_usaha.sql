@@ -48,8 +48,13 @@ param AS (
   FROM tgr_fd68e454.se2026_nested n
   WHERE n.tahun_operasi IS NOT NULL
 )
-, us2 AS (   /* turunan yang dipakai flag */
-  SELECT u.*, (u.r26a + u.r26b + u.r26c + u.r26d + u.r26e) AS pengeluaran
+, us2 AS (   /* turunan yang dipakai flag — kolom dieja eksplisit, SQL Lab menolak wildcard */
+  SELECT u.assignment_id, u.idx_unit, u.nama_usaha, u.thn_operasi
+       , u.badan_usaha_value, u.lap_keuangan_value, u.produk_sendiri_value
+       , u.kbli_akhir, u.internet_value, u.peran_mbg_value, u.pekerja
+       , u.r26a, u.r26b, u.r26c, u.r26d, u.r26e
+       , u.pendapatan, u.pendapatan_thn, u.aset, u.publik, u.non_publik
+       , (u.r26a + u.r26b + u.r26c + u.r26d + u.r26e) AS pengeluaran
   FROM us u
 )
 , flagged AS (

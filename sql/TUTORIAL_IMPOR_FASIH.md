@@ -6,7 +6,8 @@ hasilnya ke file**, lalu paste ke tab staging di spreadsheet aplikasi. Aplikasi
 yang merakit record + **menghitung ulang anomali sendiri** (bukan menyalin dari
 SQL) saat impor.
 
-Ringkas: **4 query → 4 CSV → 4 tab staging → 1 tombol impor.**
+Ringkas: **5 query (usaha, keluarga 2a+2b, roster AK, roster meteran) → 5 CSV
+→ 4 tab staging (keluarga 2a+2b digabung di 1 tab) → 1 tombol impor.**
 
 ---
 
@@ -36,24 +37,37 @@ menjaga leading zero `kbli_akhir`/`kode_wilayah`). Header baris-1 sudah terisi;
 
 ---
 
-## 1. Jalankan 4 query di SQL Lab & simpan hasilnya ke file
+## 1. Jalankan 5 query di SQL Lab & simpan hasilnya ke file
 
-Buka <https://fasih-dashboard.bps.go.id/superset/sqllab/> → DB **"Starrocks SE
+Buka [https://fasih-dashboard.bps.go.id/superset/sqllab/](https://fasih-dashboard.bps.go.id/superset/sqllab/) → DB **"Starrocks SE
 2026"**. Jalankan **satu per satu** (beri jeda beberapa detik antar-query supaya
 tidak kena "Bot Detected"):
 
-| No | File query | Simpan hasil sebagai | Isi |
-|----|------------|----------------------|-----|
-| 1 | `sql/query_ekspor_fasih_usaha.sql` | `fasih_usaha.csv` | 1 baris / unit usaha ter-flag U1–U7 |
-| 2 | `sql/query_ekspor_fasih_keluarga.sql` | `fasih_keluarga.csv` | 1 baris / keluarga ter-flag K1–K7 |
-| 3 | `sql/query_ekspor_fasih_roster_ak.sql` | `fasih_roster_ak.csv` | 1 baris / anggota keluarga (assignment ter-flag) |
-| 4 | `sql/query_ekspor_fasih_roster_meteran.sql` | `fasih_roster_meteran.csv` | 1 baris / meteran (assignment ter-flag) |
+| No | File query                                    | Simpan hasil sebagai         | Isi                                              |
+| -- | --------------------------------------------- | ---------------------------- | ------------------------------------------------ |
+| 1  | `sql/query_ekspor_fasih_usaha.sql`          | `fasih_usaha.csv`          | 1 baris / unit usaha ter-flag U1–U7             |
+| 2a | `sql/query_ekspor_fasih_keluarga.sql`       | `fasih_keluarga_a.csv`     | 1 baris / keluarga ter-flag K2, K4, K5, K6, atau K7 |
+| 2b | `sql/query_ekspor_fasih_keluarga_k1k3.sql`  | `fasih_keluarga_b.csv`     | 1 baris / keluarga ter-flag K1 atau K3           |
+| 3  | `sql/query_ekspor_fasih_roster_ak.sql`      | `fasih_roster_ak.csv`      | 1 baris / anggota keluarga (assignment ter-flag) |
+| 4  | `sql/query_ekspor_fasih_roster_meteran.sql` | `fasih_roster_meteran.csv` | 1 baris / meteran (assignment ter-flag)          |
 
 Cara menyimpan di SQL Lab: setelah hasil muncul, klik **"Download to CSV"**
-(atau ikon unduh di panel Results). Simpan keempatnya di komputer dulu — inilah
+(atau ikon unduh di panel Results). Simpan semuanya di komputer dulu — inilah
 "file" tempat kamu bisa memeriksa/menambah data manual sebelum masuk spreadsheet.
 
+**Kenapa query keluarga jadi 2 file (2a + 2b), bukan 1 seperti usaha/roster?**
+StarRocks SQL Lab menolak plan gabungan ("Invalid plan" / Issue 1002) kalau
+`UNION ALL` mencampur rule bersumber tabel `root_table` (K2/K4/K5/K6/K7) dengan
+rule bersumber `nested_dtsen`/`nested_dtsen_var` (K1/K3) dalam satu query —
+bug/keterbatasan optimizer, sudah diverifikasi lewat isolasi bertahap
+2026-08-07 (bukan salah logika rule). **Kolomnya identik** di 2a dan 2b, tinggal
+digabung: paste 2a dulu ke tab staging, lalu **APPEND** (tempel di baris
+kosong berikutnya, JANGAN timpa) hasil 2b di bawahnya — boleh ada
+assignment_id yang sama muncul di keduanya (aplikasi upsert per
+`assignment_id` saat impor, aman).
+
 **Catatan penting saat menjalankan query:**
+
 - Query hanya menyaring **assignment yang ter-flag anomali** (~puluhan ribu),
   bukan seluruh Buleleng — supaya ukuran wajar.
 - Kalau query **roster_ak** menolak kolom `nama_dtsen`, ganti `d.nama_dtsen`
@@ -83,6 +97,12 @@ Untuk tiap file:
 > CSV lalu **Paste special → Values only** di A2. Tapi **Import + convert=NO**
 > lebih aman untuk kolom kode.
 
+**Khusus tab FASIH Keluarga (2 file, 2a + 2b):** import `fasih_keluarga_a.csv`
+dulu ke A2 seperti biasa. Untuk `fasih_keluarga_b.csv`, ulangi langkah 3 tapi
+klik sel **A(n+2)** dulu — `n` = jumlah baris data hasil 2a (misal 2a punya 500
+baris data, klik A502) — supaya **APPEND**, bukan menimpa baris 2a. Boleh ada
+`assignment_id` yang sama muncul di kedua bagian, aman (lihat §1).
+
 Boleh mengoreksi/menambah baris manual di tab staging sebelum impor — isinya
 baru dibaca aplikasi saat langkah 3.
 
@@ -97,6 +117,7 @@ node scripts/sheet-admin.js import-fasih
 ```
 
 Yang terjadi:
+
 - Baca 4 tab staging → rakit record (`answers` + roster, konversi nilai, join
   wilayah `kode_wilayah` = `idsubsls` untuk mengisi 16 kolom wilayah + `pml_email`).
 - **Hitung ulang anomali** tiap record dengan mesin rule aplikasi (`RuleEvaluator`).
@@ -106,6 +127,7 @@ Yang terjadi:
   **coretan** PML tidak tersentuh.
 
 Output menampilkan:
+
 ```
 imported            : <jumlah record>
 stats               : {usaha, keluarga, rosterAkRows, rosterMeteranRows,
@@ -125,8 +147,8 @@ anomaliPerRule      : {U1: .., K5: .., ...}   ← hitungan versi APLIKASI
 ## 4. Impor bertahap (opsional, kalau kena batas 6 menit Apps Script)
 
 Kalau data terlalu besar sekali jalan:
-- Tambahkan filter wilayah di **akhir** tiap query, mis. `AND i.kode_wilayah
-  LIKE '510803%'` (per kecamatan), ekspor & impor per kecamatan.
+
+- Tambahkan filter wilayah di **akhir** tiap query, mis. `AND i.kode_wilayah LIKE '510803%'` (per kecamatan), ekspor & impor per kecamatan.
 - Impor bertahap **akumulatif**: chunk berikutnya tidak menghapus chunk
   sebelumnya (kunci `record_id` beda), dan record coretan tetap aman.
 - Kosongkan tab staging sebelum paste chunk berikutnya (biar tidak dobel).
