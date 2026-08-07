@@ -47,8 +47,8 @@ tidak kena "Bot Detected"):
 | -- | --------------------------------------------- | ---------------------------- | ------------------------------------------------ |
 | 1  | `sql/query_ekspor_fasih_usaha.sql`          | `fasih_usaha.csv`          | 1 baris / unit usaha ter-flag U1–U7             |
 | 2a | `sql/query_ekspor_fasih_keluarga.sql`       | `fasih_keluarga_a.csv`     | 1 baris / keluarga ter-flag K2, K4, K5, K6, atau K7 |
-| 2b-1 | `sql/query_ekspor_fasih_keluarga_k1k3_langkah1_id.sql` | (tidak disimpan, lihat di bawah) | daftar `assignment_id` ter-flag K1 atau K3 |
-| 2b-2 | `sql/query_ekspor_fasih_keluarga_k1k3_langkah2_detail.sql` (perlu diisi dulu) | `fasih_keluarga_b.csv` | 1 baris / keluarga ter-flag K1 atau K3, kolom lengkap |
+| 2b-1 | `sql/query_ekspor_fasih_keluarga_k1k3_langkah1_id.sql` | `export/langkah1_id.csv` | daftar `assignment_id` ter-flag K1 atau K3 (4350 baris, 2026-08-07) |
+| 2b-2 | `sql/query_ekspor_fasih_keluarga_k1k3_batch1.sql` .. `batch4.sql` (sudah diisi) | `fasih_keluarga_b1.csv` .. `b4.csv` | 1 baris / keluarga ter-flag K1 atau K3, kolom lengkap |
 | 3  | `sql/query_ekspor_fasih_roster_ak.sql`      | `fasih_roster_ak.csv`      | 1 baris / anggota keluarga (assignment ter-flag) |
 | 4  | `sql/query_ekspor_fasih_roster_meteran.sql` | `fasih_roster_meteran.csv` | 1 baris / meteran (assignment ter-flag)          |
 
@@ -66,18 +66,18 @@ harus benar-benar dipisah jadi 2 langkah manual dari K2/K4/K5/K6/K7 (sumber
 `root_table`, itulah query 2a):
 
 1. Jalankan **langkah1_id.sql** (murni dari `nested_dtsen*`, tidak sentuh
-   `root_table` sama sekali) → hasilnya daftar `assignment_id` (~4300-an baris
-   berdasar hasil dites 2026-08-07, bisa beda tergantung data terbaru).
-   Copy SEMUA nilai kolom `assignment_id` (dari panel Results, atau download
-   CSV lalu buka di editor teks/spreadsheet untuk ambil kolomnya).
-2. Tempel daftar id itu ke chat Claude Code — minta Claude mengisi placeholder
-   `{{ID_LIST}}` di **langkah2_detail.sql** dengan literal list
-   (`'id1','id2',...`), lalu simpan sebagai file baru/menimpa. Kalau daftar id
-   sangat panjang, Claude mungkin membaginya jadi beberapa batch file — jalankan
-   tiap batch terpisah, simpan CSV terpisah, semuanya tetap di-append ke tab
-   staging yang sama di langkah 2 bawah.
-3. Jalankan file yang sudah diisi itu di SQL Lab → simpan hasilnya sebagai
-   `fasih_keluarga_b.csv` (atau `_b1.csv`, `_b2.csv`, ... kalau dibagi batch).
+   `root_table` sama sekali) → hasilnya daftar `assignment_id`. **Sudah
+   dijalankan 2026-08-07**: 4350 baris, disimpan sebagai `export/langkah1_id.csv`
+   (di luar git, lihat `.gitignore`).
+2. Daftar id itu **sudah dipecah 4 batch (~1100 id masing-masing)** dan
+   ditempel ke placeholder `{{ID_LIST}}` — hasilnya 4 file siap-jalan:
+   `sql/query_ekspor_fasih_keluarga_k1k3_batch1.sql` s.d. `batch4.sql`. Tidak
+   perlu diedit lagi, tinggal dijalankan.
+   *(Kalau nanti perlu bikin batch baru dari daftar id yang beda — mis. data
+   terbaru — tempel daftar id ke chat Claude Code, minta diisikan ke
+   **langkah2_detail.sql**.)*
+3. Jalankan **keempat file batch** itu satu-satu di SQL Lab → simpan hasilnya
+   sebagai `fasih_keluarga_b1.csv`, `_b2.csv`, `_b3.csv`, `_b4.csv`.
 
 **Catatan penting saat menjalankan query:**
 
@@ -110,11 +110,13 @@ Untuk tiap file:
 > CSV lalu **Paste special → Values only** di A2. Tapi **Import + convert=NO**
 > lebih aman untuk kolom kode.
 
-**Khusus tab FASIH Keluarga (2 file, 2a + 2b):** import `fasih_keluarga_a.csv`
-dulu ke A2 seperti biasa. Untuk `fasih_keluarga_b.csv`, ulangi langkah 3 tapi
-klik sel **A(n+2)** dulu — `n` = jumlah baris data hasil 2a (misal 2a punya 500
-baris data, klik A502) — supaya **APPEND**, bukan menimpa baris 2a. Boleh ada
-`assignment_id` yang sama muncul di kedua bagian, aman (lihat §1).
+**Khusus tab FASIH Keluarga (5 file: 2a + b1..b4):** import `fasih_keluarga_a.csv`
+dulu ke A2 seperti biasa. Untuk tiap `fasih_keluarga_b{1..4}.csv` berikutnya,
+ulangi langkah 3 tapi klik sel **A(n+2)** dulu — `n` = jumlah baris data yang
+SUDAH ada di tab (misal 2a punya 500 baris, klik A502 untuk b1; kalau b1 lalu
+menambah 1100 baris lagi, b2 mulai dari A1602; dst) — supaya **APPEND**,
+bukan menimpa baris sebelumnya. Boleh ada `assignment_id` yang sama muncul
+di beberapa bagian, aman (lihat §1).
 
 Boleh mengoreksi/menambah baris manual di tab staging sebelum impor — isinya
 baru dibaca aplikasi saat langkah 3.
