@@ -2,11 +2,13 @@
  * sheet-admin — jalankan fungsi maintenance server dari terminal lewat
  * Playwright + google.script.run (transport yang sama dengan aplikasi).
  *
- * Pakai:  node scripts/sheet-admin.js status         → adminSheetStatus
- *         node scripts/sheet-admin.js setup          → adminSetupSheets (buat tab + seed yang kosong)
- *         node scripts/sheet-admin.js backup-records → salin tab Records ke tab backup ber-timestamp
- *         node scripts/sheet-admin.js reset-records  → kosongkan tab Records (testing! backup dulu)
- *         node scripts/sheet-admin.js reset-config   → Questions/Rules kembali ke baseline (testing!)
+ * Pakai:  node scripts/sheet-admin.js status          → adminSheetStatus
+ *         node scripts/sheet-admin.js setup           → adminSetupSheets (buat tab + seed yang kosong)
+ *         node scripts/sheet-admin.js backup-records  → salin tab Records ke tab backup ber-timestamp
+ *         node scripts/sheet-admin.js reset-records   → kosongkan tab Records (testing! backup dulu)
+ *         node scripts/sheet-admin.js reset-config    → Questions/Rules kembali ke baseline (testing!)
+ *         node scripts/sheet-admin.js reconcile-rules → U5/K6/K1 disamakan dgn SQL FASIH
+ *         node scripts/sheet-admin.js import-fasih    → impor tab staging FASIH → Records
  * Env:    EXEC_URL (default deployment tetap), ADMIN_PW (default pilot).
  */
 const { chromium } = require('@playwright/test');
@@ -20,11 +22,14 @@ const FN = {
   setup: 'adminSetupSheets',
   'backup-records': 'adminBackupRecords',
   'reset-records': 'resetRecords',
-  'reset-config': 'resetConfig'
+  'reset-config': 'resetConfig',
+  'reconcile-rules': 'adminReconcileRules',
+  'setup-fasih': 'adminSetupFasihStaging',
+  'import-fasih': 'importFasih'
 }[process.argv[2] || 'status'];
 
 if (!FN) {
-  console.error('Perintah tidak dikenal. Pakai: status | setup | backup-records | reset-records | reset-config');
+  console.error('Perintah tidak dikenal. Pakai: status | setup | backup-records | reset-records | reset-config | reconcile-rules | setup-fasih | import-fasih');
   process.exit(2);
 }
 
@@ -34,6 +39,10 @@ if (!FN) {
     const page = await browser.newPage();
     await page.goto(EXEC_URL);
     const f = page.frameLocator('#sandboxFrame').frameLocator('#userHtmlFrame');
+    // Sejak dashboard visualisasi jadi halaman awal, view login tersembunyi
+    // di balik tombol "Masuk" (id=goto-app-btn) — klik dulu sebelum menunggu form.
+    await f.locator('#goto-app-btn').waitFor({ timeout: 45000 });
+    await f.locator('#goto-app-btn').click();
     await f.getByTestId('login-email').waitFor({ timeout: 45000 }); // app termuat → google.script.run siap
     const res = await f.locator('body').evaluate(
       (body, { fn, pw }) =>

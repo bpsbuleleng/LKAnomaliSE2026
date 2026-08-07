@@ -82,6 +82,20 @@ var SubmitLogic = (function () {
   }
 
   /**
+   * Augment computed fields → jalankan rule aktif → perkaya `fields` anomali
+   * (label + display kategorik). Dipakai submit (setelah lolos validasi) DAN
+   * impor FASIH (bypass validasi). MURNI: tidak menyentuh sheet.
+   * @return { answers: <augmented>, anomalies: [...], errors: [...] }
+   */
+  function computeAnomalies(jenis, rawAnswers, questions, rules, refs) {
+    var d = deps();
+    var answers = d.ComputedFields.augment(jenis, rawAnswers, refs);
+    var evalRes = d.RuleEvaluator.evaluateRules(rules, answers);
+    enrichAnomalyFields(evalRes.anomalies, buildFieldInfo(jenis, questions, refs));
+    return { answers: answers, anomalies: evalRes.anomalies, errors: evalRes.errors };
+  }
+
+  /**
    * @param input     {record_id?, jenis, idsubsls?, answers} dari client —
    *                  bentuk sama dengan saveDraft (submit membawa jawaban
    *                  lokal terakhir, jadi record yang belum pernah sync pun
@@ -110,13 +124,11 @@ var SubmitLogic = (function () {
       };
     }
 
-    var answers = d.ComputedFields.augment(rec.jenis, rec.answers, refs);
-    var evalRes = d.RuleEvaluator.evaluateRules(rules, answers);
-    enrichAnomalyFields(evalRes.anomalies, buildFieldInfo(rec.jenis, questions, refs));
+    var evalRes = computeAnomalies(rec.jenis, rec.answers, questions, rules, refs);
 
     var updated = {};
     Object.keys(rec).forEach(function (k) { updated[k] = rec[k]; });
-    updated.answers = answers;
+    updated.answers = evalRes.answers;
     updated.status = 'submitted';
     updated.anomalies = evalRes.anomalies;
     updated.updated_at = nowIso;
@@ -132,7 +144,7 @@ var SubmitLogic = (function () {
     };
   }
 
-  return { applySubmit: applySubmit };
+  return { applySubmit: applySubmit, computeAnomalies: computeAnomalies };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

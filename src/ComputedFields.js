@@ -75,21 +75,33 @@ var ComputedFields = (function () {
     }, 0);
   }
 
-  // k1_pasutri_tidak_kawin = 1 kalau anggota ke-1 (index 0, seharusnya
-  // kepala keluarga b1r8_n=1) & ke-2 (index 1) tercatat sebagai pasangan
-  // suami-istri (anggota ke-2 berkode Istri/Suami, b1r8_n=2) TAPI salah satu
-  // atau keduanya berstatus kawin BUKAN "Kawin" (b1r11_n≠2). Relasi lain di
-  // posisi ke-2 (mis. Anak b1r8_n=3, atau Lainnya/famili b1r8_n=9) TIDAK
-  // diperiksa status kawinnya sama sekali — anak/famili boleh belum kawin
-  // atau cerai, itu bukan indikasi anomali (K1). Status kawin kosong (belum
-  // diisi) juga TIDAK ditandai (data belum lengkap ≠ anomali).
+  // k1_pasutri_tidak_kawin = 1 (anomali K1) berbasis POSISI roster
+  // anggota_keluarga: index 0 = anggota ke-1 (AK-1), index 1 = AK-2. Dua cabang
+  // yang DISEPAKATI (sql/REKONSILIASI_RULE.md §2.3, cocok query SQL Lab FASIH):
+  //   0  bila AK-1 bukan Kepala Keluarga (b1r8_n ≠ 1) atau tidak ada AK-2.
+  //   1  (a) AK-2 = Istri/Suami (b1r8_n=2) DAN status kawin AK-1 atau AK-2
+  //          bukan "Kawin" (b1r11_n ≠ 2).
+  //   1  (b) AK-1 (KK) berstatus Kawin (b1r11_n=2) TAPI AK-2 BUKAN Istri/Suami
+  //          (mis. langsung Anak) — pasangan kemungkinan belum tercatat.
+  //   0  selain itu (mis. KK kawin tinggal sendirian: tidak ada AK-2 → wajar).
+  // Status kawin KOSONG diperlakukan "tidak melanggar" (data belum lengkap ≠
+  // anomali) — pada cabang (a) sisi yang kosong tidak memicu, sisi lain yang
+  // terisi & ≠2 tetap memicu (sama dengan logika 3-nilai SQL sw<>'2').
   function k1PasutriTidakKawin(a) {
     var r = rows(a, 'anggota_keluarga');
     if (r.length < 2) return 0;
-    var kk = r[0], pasangan = r[1];
-    if (!eqCode(kk.b1r8_n, 1) || !eqCode(pasangan.b1r8_n, 2)) return 0;
-    if (isMissing(kk.b1r11_n) || isMissing(pasangan.b1r11_n)) return 0;
-    return (eqCode(kk.b1r11_n, 2) && eqCode(pasangan.b1r11_n, 2)) ? 0 : 1;
+    var kk = r[0], ak2 = r[1];
+    if (!eqCode(kk.b1r8_n, 1)) return 0; // AK-1 bukan Kepala Keluarga
+    // "Belum kawin" per orang = status TERISI dan bukan "Kawin" (2). Kosong
+    // bukan pelanggaran (konsisten semantik nilai kosong evaluator).
+    function belumKawin(status) { return !isMissing(status) && !eqCode(status, 2); }
+    if (eqCode(ak2.b1r8_n, 2)) {
+      // (a) AK-2 Istri/Suami — anomali kalau salah satu berstatus bukan kawin.
+      return (belumKawin(kk.b1r11_n) || belumKawin(ak2.b1r11_n)) ? 1 : 0;
+    }
+    // (b) AK-2 terisi tapi BUKAN Istri/Suami, sedangkan KK berstatus Kawin.
+    if (eqCode(kk.b1r11_n, 2) && !isMissing(ak2.b1r8_n)) return 1;
+    return 0;
   }
 
   // r13f = kategori 1 digit, digit PERTAMA dari kode KBLI 5 digit r13g —

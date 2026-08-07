@@ -258,8 +258,10 @@ var MockData = {
     // seperti sebelumnya — field ini direvisi user 2026-07-09 di tab
     // Questions). Kondisi & pesan disesuaikan: aset besar tapi CUMA 1 pekerja
     // dan pendapatan tak sepadan = mismatch skala aset vs operasi riil.
+    // Ambang aset = 10 MILIAR (disamakan dengan SQL Lab FASIH, sql/REKONSILIASI_RULE.md §2.1;
+    // versi 10 juta ditolak — 19.201 temuan, terlalu banyak).
     { rule_id: 'U5', jenis: 'usaha', severity: 'warning', message: 'Hubungan Aset/Pekerja/Produksi: aset usaha besar tetapi hanya 1 pekerja dan pendapatan tidak sepadan', active: true,
-      when: { all: [{ field: 'r28c', op: '>', value: 10000000 }, { field: 'r24c1', op: '==', value: 1 }, { field: 'r27c', op: '<', value: 60000000 }] } },
+      when: { all: [{ field: 'r28c', op: '>', value: 10000000000 }, { field: 'r24c1', op: '==', value: 1 }, { field: 'r27c', op: '<', value: 60000000 }] } },
     { rule_id: 'U6', jenis: 'usaha', severity: 'warning', message: 'Penggunaan Internet Usaha Menengah-Besar: usaha besar tidak menggunakan internet', active: true,
       when: { all: [{ field: 'r16a', op: '==', value: 2 }, { field: 'r25', op: '<', value: 2026 }, { field: 'r27c', op: '>=', value: 15000000000 }] } },
     { rule_id: 'U7', jenis: 'usaha', severity: 'warning', message: 'Laporan Keuangan Usaha Menengah-Besar: usaha besar tidak menyusun laporan keuangan', active: true,
@@ -288,12 +290,15 @@ var MockData = {
       when: { any: [{ field: 'luas_per_kapita', op: '<', value: 3 }, { field: 'luas_per_kapita', op: '>', value: 200 }] } },
     { rule_id: 'K5', jenis: 'keluarga', severity: 'warning', message: 'Selisih Pendapatan Negatif: total pendapatan sebulan lebih kecil dari total pengeluaran sebulan', active: true,
       when: { field: 'b3r18c', op: '<', field2: 'b4r16' } },
+    // K6 memakai AND keempat syarat (disamakan dengan SQL Lab FASIH,
+    // sql/REKONSILIASI_RULE.md §2.2): listrik < 100rb DAN tepat 1 meteran DAN
+    // ada meteran 450 VA DAN punya barang mewah. Versi OR (bunyi dokumen) 32%
+    // keluarga — terlalu longgar untuk dikerjakan lapangan.
     { rule_id: 'K6', jenis: 'keluarga', severity: 'warning', message: 'Listrik Rendah & Ada Barang Mewah', active: true,
       when: { all: [
-        { any: [
-          { field: 'b4r15a', op: '<', value: 100000 },
-          { all: [{ field: 'b4r14a', op: '==', value: 1 }, { roster_any: 'meteran_listrik', condition: { field: 'b4r14b_n', op: '==', value: 1 } }] }
-        ] },
+        { field: 'b4r15a', op: '<', value: 100000 },
+        { field: 'b4r14a', op: '==', value: 1 },
+        { roster_any: 'meteran_listrik', condition: { field: 'b4r14b_n', op: '==', value: 1 } },
         { any: [{ field: 'b4r17c', op: '>', value: 0 }, { field: 'b4r17d', op: '>', value: 0 }, { field: 'b4r17f', op: '>', value: 0 }] }
       ] } },
     { rule_id: 'K7', jenis: 'keluarga', severity: 'warning', message: 'Jumlah Anggota Keluarga Ekstrem: lebih dari 10 anggota', active: true,

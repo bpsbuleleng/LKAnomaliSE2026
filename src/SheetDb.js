@@ -29,9 +29,12 @@ var SheetDb = (function () {
   var ALOKASI_HEADERS = ['idsubsls', 'kdprov', 'kdkab', 'kdkec', 'kddesa', 'kdsls', 'kdsubsls',
     'nmprov', 'nmkab', 'nmkec', 'nmdesa', 'nmsls', 'nmppl', 'nmpml', 'emailppl', 'emailpml'];
   // Snapshot wilayah di Records = kolom yang sama persis dengan Alokasi Wilayah.
+  // `sumber` (coretan|fasih) & `assignment_id` DITAMBAHKAN di akhir (impor
+  // FASIH) — record lama tanpa 2 kolom itu tetap terbaca (sumber kosong =
+  // coretan, lihat recordFromRow_); migrasi kolom via ensureRecordColumns.
   var RECORD_HEADERS = ['record_id', 'pml_email', 'jenis', 'status']
     .concat(ALOKASI_HEADERS)
-    .concat(['answers', 'anomalies', 'created_at', 'updated_at']);
+    .concat(['answers', 'anomalies', 'created_at', 'updated_at', 'sumber', 'assignment_id']);
   var QUESTION_HEADERS = ['question_id', 'jenis', 'order', 'label', 'type', 'options', 'required', 'help', 'active', 'roster_group'];
   var RULE_HEADERS = ['rule_id', 'jenis', 'severity', 'message', 'when', 'active'];
   // Tab referensi buatan user (~2560 baris, kode KBLI 5 digit → rasio NTB
@@ -249,6 +252,8 @@ var SheetDb = (function () {
     row.push(JSON.stringify(rec.anomalies || []));
     row.push(s_(rec.created_at));
     row.push(s_(rec.updated_at));
+    row.push(s_(rec.sumber) || 'coretan');
+    row.push(s_(rec.assignment_id));
     return row;
   }
 
@@ -266,14 +271,92 @@ var SheetDb = (function () {
       answers: parseJson_(row.answers, {}),
       anomalies: parseJson_(row.anomalies, []),
       created_at: s_(row.created_at),
-      updated_at: s_(row.updated_at)
+      updated_at: s_(row.updated_at),
+      // Record lama (pra-impor FASIH) tak punya kolom ini → dianggap coretan.
+      sumber: s_(row.sumber) || 'coretan',
+      assignment_id: s_(row.assignment_id)
     };
+  }
+
+  /**
+   * Migrasi in-place: pastikan tab Records punya SEMUA kolom RECORD_HEADERS.
+   * Kolom yang belum ada (mis. `sumber`/`assignment_id` pada tab pra-impor
+   * FASIH) ditambahkan di UJUNG kanan (diformat TEXT). readTable memetakan per
+   * NAMA header, jadi posisi kolom baru aman selama urutan kolom lama = prefix
+   * RECORD_HEADERS (selalu benar karena kita hanya menambah di akhir).
+   * @return jumlah kolom yang ditambahkan.
+   */
+  function ensureRecordColumns() {
+    var sh = ss().getSheetByName(TABS.RECORDS);
+    if (!sh) return 0;
+    var lastCol = Math.max(1, sh.getLastColumn());
+    var headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0]
+      .map(function (h) { return String(h).trim(); });
+    var added = 0;
+    RECORD_HEADERS.forEach(function (h) {
+      if (headers.indexOf(h) !== -1) return;
+      var col = lastCol + 1 + added;
+      sh.getRange(1, col, sh.getMaxRows(), 1).setNumberFormat('@');
+      sh.getRange(1, col, 1, 1).setValues([[h]]).setFontWeight('bold');
+      added++;
+    });
+    return added;
   }
 
   function readRecords() {
     return readTable(TABS.RECORDS)
       .filter(function (r) { return s_(r.record_id) !== ''; })
       .map(recordFromRow_);
+  }
+
+  /**
+   * Baca HANYA record milik satu PML. Tab bisa ~29rb baris (impor FASIH) — di
+   * sini filter kolom pml_email dilakukan SEBELUM JSON.parse answers tiap baris,
+   * jadi cuma baris milik PML itu yang di-parse (hemat waktu, jauh dari batas 6
+   * menit). Baca sel tetap satu bulk getDisplayValues (tak terhindarkan), tapi
+   * kerja berat (parse) hanya untuk baris relevan.
+   */
+  function readRecordsForPml(pmlEmail) {
+    var sh = ss().getSheetByName(TABS.RECORDS);
+    if (!sh) return [];
+    var values = sh.getDataRange().getDisplayValues();
+    if (values.length < 2) return [];
+    var headers = values[0].map(function (h) { return String(h).trim(); });
+    var idIdx = headers.indexOf('record_id');
+    var emailIdx = headers.indexOf('pml_email');
+    if (idIdx === -1 || emailIdx === -1) return [];
+    var norm = String(pmlEmail == null ? '' : pmlEmail).trim().toLowerCase();
+    var out = [];
+    for (var i = 1; i < values.length; i++) {
+      if (s_(values[i][idIdx]) === '') continue;
+      if (String(values[i][emailIdx]).trim().toLowerCase() !== norm) continue;
+      var row = {};
+      for (var j = 0; j < headers.length; j++) { if (headers[j]) row[headers[j]] = values[i][j]; }
+      out.push(recordFromRow_(row));
+    }
+    return out;
+  }
+
+  /** Baca SATU record ber-record_id (parse cuma 1 baris) — dipakai getRecord &
+   *  jalur transaksi (saveDraft/submit/delete) supaya tidak parse seluruh tab.
+   *  @return record | null. */
+  function readRecordById(recordId) {
+    var sh = ss().getSheetByName(TABS.RECORDS);
+    if (!sh) return null;
+    var last = sh.getLastRow();
+    if (last < 2) return null;
+    var ids = sh.getRange(2, 1, last - 1, 1).getDisplayValues();
+    var rowIndex = -1;
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i][0] === recordId) { rowIndex = i + 2; break; }
+    }
+    if (rowIndex === -1) return null;
+    var lastCol = sh.getLastColumn();
+    var headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0].map(function (h) { return String(h).trim(); });
+    var vals = sh.getRange(rowIndex, 1, 1, lastCol).getDisplayValues()[0];
+    var row = {};
+    for (var j = 0; j < headers.length; j++) { if (headers[j]) row[headers[j]] = vals[j]; }
+    return recordFromRow_(row);
   }
 
   /**
@@ -296,6 +379,54 @@ var SheetDb = (function () {
       ensureCapacity_(sh, rowIndex);
     }
     sh.getRange(rowIndex, 1, 1, RECORD_HEADERS.length).setValues([recordToRow_(rec)]);
+  }
+
+  /**
+   * Bulk upsert impor FASIH: gabung record baru dengan isi tab yang ADA lalu
+   * tulis ulang SELURUH data region dalam SATU setValues (hindari upsertRecord
+   * per baris yang O(n²) untuk ~29rb baris). Cocok by record_id: baris lama
+   * ber-id sama diganti versi baru; coretan & chunk FASIH sebelumnya (id beda)
+   * dipertahankan. Baris lama disimpan sebagai display value MENTAH (tidak
+   * di-parse ulang). Caller WAJIB ensureRecordColumns() dulu & di bawah lock.
+   */
+  function bulkUpsertRecords(recs) {
+    var sh = mustSheet(TABS.RECORDS);
+    var nCol = RECORD_HEADERS.length;
+    var last = sh.getLastRow();
+    var existing = last > 1 ? sh.getRange(2, 1, last - 1, nCol).getDisplayValues() : [];
+    var newRows = recs.map(recordToRow_);
+    var newIds = {};
+    newRows.forEach(function (r) { newIds[r[0]] = true; });
+    var kept = existing.filter(function (r) { return s_(r[0]) !== '' && !newIds[r[0]]; });
+    var all = kept.concat(newRows);
+    if (last > 1) sh.getRange(2, 1, last - 1, sh.getMaxColumns()).clearContent();
+    if (all.length) {
+      ensureCapacity_(sh, 1 + all.length);
+      sh.getRange(2, 1, all.length, nCol).setValues(all);
+    }
+    return { written: all.length, replacedOrAdded: newRows.length, kept: kept.length };
+  }
+
+  /** Buat 4 tab staging FASIH (header + format TEXT) kalau belum ada; header
+   *  diambil dari FasihImport.STAGING. @return {tab: created?}. */
+  function ensureFasihStagingTabs() {
+    var out = {};
+    var st = FasihImport.STAGING;
+    Object.keys(st).forEach(function (k) {
+      out[st[k].tab] = ensureTab(st[k].tab, st[k].headers);
+    });
+    return out;
+  }
+
+  /** Baca 4 tab staging FASIH → {usaha, keluarga, rosterAk, rosterMeteran}
+   *  (array objek ber-key header; tab belum ada → []). */
+  function readFasihStaging() {
+    var st = FasihImport.STAGING;
+    var out = {};
+    Object.keys(st).forEach(function (k) {
+      out[k] = ss().getSheetByName(st[k].tab) ? readTable(st[k].tab) : [];
+    });
+    return out;
   }
 
   /** Kosongkan SEMUA baris data Records — utilitas testing (lihat resetRecords). */
@@ -478,6 +609,12 @@ var SheetDb = (function () {
     upsertComputedFieldDef: upsertComputedFieldDef,
     deleteComputedFieldDef: deleteComputedFieldDef,
     readRecords: readRecords,
+    readRecordsForPml: readRecordsForPml,
+    readRecordById: readRecordById,
+    ensureRecordColumns: ensureRecordColumns,
+    bulkUpsertRecords: bulkUpsertRecords,
+    ensureFasihStagingTabs: ensureFasihStagingTabs,
+    readFasihStaging: readFasihStaging,
     upsertRecord: upsertRecord,
     deleteRecordRow: deleteRecordRow,
     backupRecords: backupRecords,

@@ -74,20 +74,36 @@ test('k1_pasutri_tidak_kawin: pasutri tapi KK sendiri belum kawin → 1', () => 
   assert.equal(out.k1_pasutri_tidak_kawin, 1);
 });
 
-test('k1_pasutri_tidak_kawin: pos2 anak (bukan istri/suami) boleh cerai/belum kawin → 0', () => {
+test('k1_pasutri_tidak_kawin: cabang (b) — KK kawin tapi AK-2 anak (bukan istri/suami) → 1', () => {
   const cerai = keluarga({ roster: { anggota_keluarga: [
     { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 3, b1r11_n: 4 }
   ] } });
-  assert.equal(cerai.k1_pasutri_tidak_kawin, 0);
+  assert.equal(cerai.k1_pasutri_tidak_kawin, 1);
   const belumKawin = keluarga({ roster: { anggota_keluarga: [
     { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 3, b1r11_n: 1 }
   ] } });
-  assert.equal(belumKawin.k1_pasutri_tidak_kawin, 0);
+  assert.equal(belumKawin.k1_pasutri_tidak_kawin, 1);
 });
 
-test('k1_pasutri_tidak_kawin: pos2 famili/lainnya boleh belum kawin atau cerai → 0', () => {
+test('k1_pasutri_tidak_kawin: cabang (b) — KK kawin tapi AK-2 famili/lainnya → 1', () => {
   const out = keluarga({ roster: { anggota_keluarga: [
     { b1r8_n: 1, b1r11_n: 2 }, { b1r8_n: 9, b1r11_n: 1 }
+  ] } });
+  assert.equal(out.k1_pasutri_tidak_kawin, 1);
+});
+
+test('k1_pasutri_tidak_kawin: cabang (b) TIDAK berlaku kalau KK sendiri belum kawin → 0', () => {
+  // KK belum kawin (b1r11_n=1) tinggal dengan anak: bukan pasutri & KK tak
+  // kawin, jadi tidak ada cabang yang terpicu.
+  const out = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 1 }, { b1r8_n: 3, b1r11_n: 1 }
+  ] } });
+  assert.equal(out.k1_pasutri_tidak_kawin, 0);
+});
+
+test('k1_pasutri_tidak_kawin: cabang (b) — AK-2 hubungan kosong (belum diisi) → 0', () => {
+  const out = keluarga({ roster: { anggota_keluarga: [
+    { b1r8_n: 1, b1r11_n: 2 }, { b1r11_n: 1 }
   ] } });
   assert.equal(out.k1_pasutri_tidak_kawin, 0);
 });

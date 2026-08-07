@@ -61,6 +61,8 @@ var RecordLogic = (function () {
     var w = rec.wilayah || {};
     return {
       record_id: rec.record_id, jenis: rec.jenis, status: rec.status,
+      // coretan = isian PML lewat kuesioner; fasih = hasil impor (read-only).
+      sumber: s(rec.sumber) || 'coretan',
       judul: judulRecord(rec.jenis, rec.answers),
       idsubsls: s(w.idsubsls), nmkec: s(w.nmkec), nmdesa: s(w.nmdesa),
       nmsls: s(w.nmsls), kdsubsls: s(w.kdsubsls), nmppl: s(w.nmppl),
@@ -141,7 +143,8 @@ var RecordLogic = (function () {
         var revived = {
           record_id: input.record_id, pml_email: norm, jenis: input.jenis,
           status: 'draft', wilayah: wilayah, answers: input.answers || {},
-          anomalies: [], created_at: nowIso, updated_at: nowIso
+          anomalies: [], created_at: nowIso, updated_at: nowIso,
+          sumber: 'coretan', assignment_id: ''
         };
         return { ok: true, records: records.concat([revived]), record_id: revived.record_id, updated_at: nowIso };
       }
@@ -161,7 +164,7 @@ var RecordLogic = (function () {
     var rec = {
       record_id: newId, pml_email: norm, jenis: input.jenis, status: 'draft',
       wilayah: wilayah, answers: input.answers || {}, anomalies: [],
-      created_at: nowIso, updated_at: nowIso
+      created_at: nowIso, updated_at: nowIso, sumber: 'coretan', assignment_id: ''
     };
     return { ok: true, records: records.concat([rec]), record_id: newId, updated_at: nowIso };
   }

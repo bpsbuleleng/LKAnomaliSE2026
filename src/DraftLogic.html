@@ -130,7 +130,7 @@ var DraftLogic = (function () {
       var dirty = !!(d && isDirty(d));
       return {
         key: r.record_id, record_id: r.record_id, localId: d ? d.localId : null,
-        jenis: r.jenis, status: r.status, unsynced: dirty,
+        jenis: r.jenis, status: r.status, sumber: r.sumber || 'coretan', unsynced: dirty,
         // Draft lokal dirty lebih baru dari server → judul dari jawaban lokal.
         judul: dirty ? judulRecord(d.jenis, d.answers) : (r.judul || ''),
         updated: dirty ? d.updatedLocal : r.updated_at,
@@ -144,7 +144,7 @@ var DraftLogic = (function () {
       if (d.rev === 0 && !d.record_id) return;
       items.push({
         key: d.localId, record_id: d.record_id || null, localId: d.localId,
-        jenis: d.jenis, status: 'draft', unsynced: isDirty(d),
+        jenis: d.jenis, status: 'draft', sumber: 'coretan', unsynced: isDirty(d),
         judul: judulRecord(d.jenis, d.answers),
         updated: d.updatedLocal, idsubsls: d.idsubsls,
         nmkec: '', nmdesa: '', nmsls: '', kdsubsls: '',

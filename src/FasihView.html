@@ -1,0 +1,50 @@
+<!-- Panel detail READ-ONLY untuk record hasil impor FASIH (bukan kuesioner).
+     Menampilkan hasil pemeriksaan anomali (dihitung ulang aplikasi), rincian
+     isian yang tidak bisa diubah, dan kotak catatan pemeriksa. TIDAK menampilkan
+     link ke FASIH. -->
+<section id="view-fasih" data-testid="fasih-view" class="view hidden max-w-md lg:max-w-3xl mx-auto px-3 py-4 sm:px-4 sm:py-6">
+  <div class="flex items-center justify-between mb-3 gap-2">
+    <button id="fasih-back" data-testid="fasih-back" type="button"
+      class="h-11 px-3 rounded-lg text-orange-700 font-medium active:bg-orange-50">&larr; Kembali</button>
+    <span class="text-xs font-semibold px-2 py-1 rounded-full bg-sky-100 text-sky-700">FASIH</span>
+  </div>
+
+  <div class="bg-white rounded-2xl shadow p-4 sm:p-5 space-y-4">
+    <div class="flex items-center gap-2 flex-wrap">
+      <h1 id="fasih-title" data-testid="fasih-title" class="text-lg font-bold"></h1>
+      <span id="fasih-jenis-chip" data-testid="fasih-jenis-chip"
+        class="text-xs font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-600"></span>
+    </div>
+    <p id="fasih-wilayah" data-testid="fasih-wilayah" class="text-sm text-slate-500"></p>
+
+    <div class="rounded-xl bg-sky-50 border border-sky-200 text-sky-900 text-sm p-3">
+      <p class="font-semibold mb-0.5">&#128203; Data hasil impor FASIH</p>
+      Isian di bawah hanya bisa dilihat. Tambahkan catatan pemeriksaan di kotak
+      paling bawah dan simpan.
+    </div>
+
+    <!-- Hasil pemeriksaan anomali (dihitung ulang mesin rule aplikasi saat impor) -->
+    <div id="fasih-anomaly-section" data-testid="fasih-anomaly-section"
+      class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+      <p id="fasih-anomaly-title" class="text-sm font-semibold text-slate-600"></p>
+      <ul id="fasih-anomaly-list" class="space-y-2"></ul>
+    </div>
+
+    <div>
+      <p class="text-sm font-semibold text-slate-600 mb-2">Rincian isian</p>
+      <div id="fasih-detail" data-testid="fasih-detail" class="space-y-2"></div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-semibold text-slate-600 mb-1">Catatan pemeriksa</label>
+      <textarea id="fasih-catatan" data-testid="fasih-catatan" rows="3"
+        class="w-full px-3 py-3 text-base rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+        placeholder="Tulis catatan hasil pemeriksaan lapangan…"></textarea>
+    </div>
+    <p id="fasih-error" data-testid="fasih-error" class="hidden text-sm text-red-600"></p>
+    <button id="fasih-save-note" data-testid="fasih-save-note" type="button"
+      class="w-full h-12 rounded-xl bg-orange-600 text-white text-base font-semibold active:bg-orange-700 disabled:opacity-50">
+      Simpan Catatan
+    </button>
+  </div>
+</section>

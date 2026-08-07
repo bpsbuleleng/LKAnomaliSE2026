@@ -23,7 +23,13 @@
 
   <!-- Filter daftar record — semua opsi (kecuali Status) diisi dinamis dari
        record yang termuat, jadi cuma menampilkan pilihan yang relevan. -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
+    <select id="filter-sumber" data-testid="filter-sumber"
+      class="h-11 px-3 text-sm rounded-xl border border-slate-300 bg-white">
+      <option value="">Semua Sumber</option>
+      <option value="coretan">Coretan</option>
+      <option value="fasih">FASIH</option>
+    </select>
     <select id="filter-status" data-testid="filter-status"
       class="h-11 px-3 text-sm rounded-xl border border-slate-300 bg-white">
       <option value="">Semua Status</option>

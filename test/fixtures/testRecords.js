@@ -76,11 +76,13 @@ var TEST_RECORDS = [
   make('k1-pasangan-cerai', 'keluarga', ['K1'], keluargaBase, function (a) {
     a.roster.anggota_keluarga[1].b1r11_n = 3; // istri cerai hidup
   }),
-  make('k1-anak-cerai-bukan-anomali', 'keluarga', [], keluargaBase, function (a) {
-    // anggota ke-2 (index 1) diganti jadi anak (bukan istri/suami) berstatus
-    // cerai mati — bukan pasutri, status kawinnya TIDAK diperiksa K1.
-    a.roster.anggota_keluarga[1].b1r8_n = 3;
-    a.roster.anggota_keluarga[1].b1r11_n = 4;
+  make('k1-kk-belum-kawin-anak-bukan-anomali', 'keluarga', [], keluargaBase, function (a) {
+    // AK-1 Kepala Keluarga berstatus BELUM kawin, AK-2 anak (bukan istri/suami):
+    // bukan cabang (a) — AK-2 bukan pasangan — dan bukan cabang (b) — KK tak
+    // kawin. Jadi K1 tidak terpicu. (Kalau KK-nya kawin, cabang (b) memicu.)
+    a.roster.anggota_keluarga[0].b1r11_n = 1; // KK belum kawin
+    a.roster.anggota_keluarga[1].b1r8_n = 3;  // AK-2 anak
+    a.roster.anggota_keluarga[1].b1r11_n = 1;
   }),
   make('k2-kk-anak-rumah-sendiri', 'keluarga', ['K2'], keluargaBase, function (a) {
     a.b1r13_1 = 8; // umur KK < 10, b4r3a tetap 1 (milik sendiri)
@@ -96,7 +98,9 @@ var TEST_RECORDS = [
     a.roster.anggota_keluarga[0].b3r18a_n = 0; // total pendapatan 0 < pengeluaran
   }),
   make('k6-listrik-rendah-barang-mewah', 'keluarga', ['K6'], keluargaBase, function (a) {
-    a.b4r15a = 50000; a.b4r17c = 1; // listrik < 100rb + punya mobil
+    // K6 (all): listrik < 100rb + 1 meteran (b4r14a=1 dari base) + meteran 450 VA + barang mewah.
+    a.b4r15a = 50000; a.b4r17c = 1;
+    a.roster.meteran_listrik = [{ b4r14b_n: 1 }]; // 450 VA (base 900 VA → K6 tidak akan terpicu)
   }),
   make('k7-anggota-ekstrem', 'keluarga', ['K7'], keluargaBase, function (a) {
     for (var i = 0; i < 7; i++) a.roster.anggota_keluarga.push(member({ b1r6_n: 'ANAK-' + (i + 3) }));
@@ -128,7 +132,7 @@ var TEST_RECORDS = [
     a.r27c = 70000000; // rasio 1,4 ≥ 1,25; > total biaya → U2 aman; ≥ 60jt → U5 aman
   }),
   make('u5-aset-mbg', 'usaha', ['U5'], usahaBase, function (a) {
-    a.r28c = 50000000; a.r24c1 = 1; // aset > 10jt, 1 pekerja (r24c1="Total pekerja"), pendapatan 55jt < 60jt
+    a.r28c = 50000000000; a.r24c1 = 1; // aset 50 M > 10 M, 1 pekerja (r24c1="Total pekerja"), pendapatan 55jt < 60jt
   }),
   make('u6-besar-tanpa-internet', 'usaha', ['U6'], usahaBase, function (a) {
     a.r16a = 2; a.r27c = 15000000000;

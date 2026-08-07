@@ -87,6 +87,42 @@ function adminPmlSummary(adminPassword) {
 }
 
 /**
+ * Samakan baris tab `Rules` LIVE dengan hasil rekonsiliasi ke SQL Lab FASIH
+ * (sql/REKONSILIASI_RULE.md §2): U5 (ambang aset 10 M), K6 (AND 4 syarat), dan
+ * K1 (leaf computed field k1_pasutri_tidak_kawin). Menimpa HANYA `when` +
+ * `message` ketiga rule itu, mengambil bentuk final dari MockData.RULES —
+ * baris & kolom lain tidak disentuh. Idempoten (aman dipanggil berulang).
+ * Dipakai lewat: node scripts/sheet-admin.js reconcile-rules
+ */
+function adminReconcileRules(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var TARGET_IDS = ['U5', 'K6', 'K1'];
+    var baseline = {};
+    MockData.RULES.forEach(function (r) { baseline[r.rule_id] = r; });
+    var rules = SheetDb.readRules();
+    var applied = [], notApplied = [];
+    TARGET_IDS.forEach(function (id) {
+      var src = baseline[id];
+      if (!src) { notApplied.push(id + ' (tak ada di baseline)'); return; }
+      var res = ConfigLogic.applyUpdateRule(rules, id, { when: src.when, message: src.message });
+      if (!res.ok) { notApplied.push(id + ' (' + res.error + ')'); return; }
+      rules = res.rules;
+      applied.push(id);
+    });
+    SheetDb.writeRules(rules);
+    return { ok: true, applied: applied, notApplied: notApplied, totalRules: rules.length };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
  * Siapkan 5 tab aplikasi: buat yang belum ada (header + format TEXT), lalu
  * seed baseline MockData HANYA ke tab yang masih kosong — tab yang sudah
  * berisi data (mis. Petugas riil ~697 baris) TIDAK disentuh sama sekali.
@@ -112,7 +148,9 @@ function adminSetupSheets(adminPassword) {
     };
     result[T.RECORDS] = {
       created: SheetDb.ensureTab(T.RECORDS, H.RECORDS),
-      seeded: 0 // Records selalu mulai kosong — diisi aplikasi
+      seeded: 0, // Records selalu mulai kosong — diisi aplikasi
+      // Migrasi tab lama: tambah kolom sumber/assignment_id kalau belum ada.
+      columnsAdded: SheetDb.ensureRecordColumns()
     };
     result[T.QUESTIONS] = {
       created: SheetDb.ensureTab(T.QUESTIONS, H.QUESTIONS),

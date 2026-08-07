@@ -271,3 +271,74 @@ Kolom asli: `Kode Anomali` (≈ rule_id: U1-U8 usaha, K1-K7 keluarga), `Kelompok
 ### Strategi sampel test record
 
 Setelah ke-16 rule di atas diterjemahkan ke `when`, jumlah record test = **1 bersih (0 anomali) + 1 per rule aktif (mengisolasi rule itu saja) + minimal 1 multi-trigger** — untuk 16 rule berarti minimal ~18 record test.
+
+---
+
+## STATUS LIVE (baca ini dulu di sesi baru — supersedes bagian di atas yang planning-stage)
+
+Update: 2026-08-07. Semua 16 rule sudah diterjemahkan & live di Fase 5 (Google Sheets nyata,
+spreadsheet ID `1-AaXOXyy83Txn5xKxN9HpDYGuj5TwuaiYAD8nRKUUMU`). Fase yang sedang berjalan sekarang:
+**impor data FASIH** (Superset SQL Lab BPS) sebagai record `submitted` read-only ke Lembar Kerja PML,
+di luar alur kuesioner normal PML. Detail keputusan desain lengkap ada di `sql/`:
+
+- `sql/REKONSILIASI_RULE.md` — selisih rule aplikasi vs SQL FASIH (semua sudah diperbaiki di aplikasi,
+  lihat §2), peta alias FASIH→aplikasi (§5), 3 hal yang masih perlu diverifikasi manual (§6).
+- `sql/PEMETAAN_ANOMALI_FASIH.md` — skema database FASIH di Superset (tabel, kolom, konvensi `_value`/`_label`).
+- `sql/anomali_se2026_gabungan.sql` + `sql/query_ekspor_fasih_*.sql` — query SQL Lab, sudah teruji, JANGAN diubah.
+- `sql/TUTORIAL_IMPOR_FASIH.md` — **tutorial lengkap step-by-step** untuk menjalankan impor (baca ini
+  sebelum menjalankan apa pun terkait FASIH). Ringkas: 4 query SQL Lab → simpan CSV manual (FASIH
+  memblokir request otomatis beruntun, "Bot Detected") → paste ke 4 tab staging → `node scripts/sheet-admin.js import-fasih`.
+
+### Apa yang SUDAH selesai & terverifikasi (jangan kerjakan ulang)
+
+1. **Rekonsiliasi rule vs SQL** — U5 (ambang aset 10jt→10M), K6 (OR→AND 4 syarat), K1 (pindah ke
+   computed field `k1_pasutri_tidak_kawin` dengan 2 cabang, lihat `ComputedFields.js:90-105`) — sudah
+   diterapkan ke tab `Rules` LIVE via `node scripts/sheet-admin.js reconcile-rules` (idempoten, baca
+   baseline dari `MockData.RULES`).
+2. **Skema `Records` diperluas** — kolom `sumber` (`coretan`|`fasih`) & `assignment_id` ditambah di
+   akhir `RECORD_HEADERS` (`SheetDb.js`). Sudah dijalankan ke tab live via
+   `node scripts/sheet-admin.js setup` (`columnsAdded: 2`, 556 baris lama tidak tersentuh, `sumber`
+   kosong dibaca sebagai `coretan` lewat fallback di `rowToRecord_`).
+3. **`FasihImport.js`** (logic murni, di-unit-test Node di `test/fasih.test.js`) — rakit `answers` +
+   `answers.roster` dari 4 tab staging pakai peta §5 REKONSILIASI_RULE.md, konversi kategorik FASIH
+   (string) → number, parse `"Rp 5.000.000"` → `5000000`, `b3r18b_n`/`b3r18c_n` = 0 (lihat §6 poin 1),
+   join wilayah `kode_wilayah` (16 digit) == `idsubsls`.
+4. **`DataAccess.importFasih(adminPassword)`** — privileged, cek password tiap panggilan, baca staging →
+   hitung `anomalies` via `RuleEvaluator` (bukan disalin dari SQL) → upsert ke `Records` berdasarkan
+   `assignment_id` (idempoten, key deterministik), `status='submitted'`, `sumber='fasih'`, bypass
+   validasi required. `SheetDb.readRecords`/`readRecordsForPml` sudah difilter per-PML di level baca
+   (bukan baca seluruh tab) supaya aman dari batas 6 menit Apps Script di ~29rb baris FASIH.
+5. **UI**: `DashboardView.html` — badge sumber FASIH di kartu + filter Sumber (Semua/Coretan/FASIH).
+   `FasihView.html` (BARU) — panel detail read-only + kotak catatan pemeriksa untuk record `sumber=fasih`,
+   TIDAK menampilkan link FASIH, TIDAK dibuka sebagai kuesioner.
+6. **Tab staging & tooling**: `scripts/sheet-admin.js` punya perintah `setup-fasih` (buat 4 tab staging
+   TEXT-formatted: `FASIH Usaha`, `FASIH Keluarga`, `FASIH Roster AK`, `FASIH Roster Meteran`) dan
+   `import-fasih`. **Catatan tooling**: selector Playwright `sheet-admin.js` sempat basi karena halaman
+   awal sekarang Dashboard Visualisasi (bukan langsung form login) — sudah diperbaiki: klik tombol
+   `#goto-app-btn` ("Masuk") dulu sebelum menunggu `data-testid="login-email"`.
+7. **Deploy**: `npm test` (279 test, hijau) → `npm run push` → `npm run deploy` (deployment ID tetap
+   `AKfycbwJ4spiFeSAymytUTDFl4bfrMcpBBD3NsE5d0k2GCM1_U50slKfyHaC3HhMRipnw7PU`) — sudah dijalankan.
+8. **Live spreadsheet sudah disiapkan penuh** (dicek `node scripts/sheet-admin.js status`, 2026-08-07):
+   tab `Records` backup dulu (`Records_backup_20260807_150512`) sebelum tambah kolom, kolom
+   `sumber`/`assignment_id` sudah ada, rule U5/K6/K1 sudah tereskonsiliasi, 4 tab staging FASIH sudah
+   dibuat kosong. `node scripts/sheet-admin.js import-fasih` dites di tab staging kosong → no-op aman
+   (`{"note":"Tab staging FASIH kosong…", "imported":0}`), BUKAN error.
+
+### Yang BELUM selesai — langkah selanjutnya
+
+- **Data FASIH belum ditarik.** Tab staging masih kosong. User perlu jalankan 4 query
+  `sql/query_ekspor_fasih_*.sql` manual di SQL Lab Superset (`https://fasih-dashboard.bps.go.id/superset/sqllab/`,
+  DB "Starrocks SE 2026"), simpan tiap hasil sebagai CSV, lalu paste ke tab staging masing-masing
+  (ikuti `sql/TUTORIAL_IMPOR_FASIH.md` §1-2 — WAJIB "Convert text to numbers/dates: NO" supaya kode
+  KBLI/wilayah tidak kehilangan leading zero).
+- **`import-fasih` belum dijalankan dengan data sungguhan** — setelah staging terisi, jalankan
+  `node scripts/sheet-admin.js import-fasih`, lalu bandingkan `anomaliPerRule` hasil output dengan
+  angka di `sql/REKONSILIASI_RULE.md §1`/`PEMETAAN_ANOMALI_FASIH.md §5` (U9 wajar LEBIH BANYAK di
+  aplikasi karena butuh tab `Rasio NTB SE2016` yang cuma ada di spreadsheet aplikasi, bukan di FASIH
+  — lihat REKONSILIASI_RULE.md §3, ini disengaja bukan bug).
+- 3 hal di REKONSILIASI_RULE.md §6 masih perlu verifikasi query tambahan di SQL Lab (dekomposisi
+  `b3r18a/b/c_n`, `umur_krt` vs umur AK di roster, kualitas `total_pengeluaran` vs jumlah komponen) —
+  belum blocking untuk impor, tapi baik dicek kalau ada waktu.
+- Belum ada commit git untuk seluruh pekerjaan FASIH ini (`git status` masih menunjukkan working tree
+  berubah, termasuk file baru `src/FasihImport.js`, `src/FasihView.html`, `test/fasih.test.js`, `sql/`) —
+  user belum minta commit, jangan commit tanpa diminta.

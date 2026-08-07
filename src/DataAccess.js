@@ -42,11 +42,20 @@ function getPPL(idsubsls) {
 // ==== RECORDS ====
 
 function listRecords(pmlEmail) {
-  return { ok: true, records: RecordLogic.listRecordsFor(SheetDb.readRecords(), pmlEmail) };
+  var norm = String(pmlEmail == null ? '' : pmlEmail).trim().toLowerCase();
+  // Tab Records bisa ~29rb baris (impor FASIH): baca HANYA milik PML ini
+  // (parse per baris hanya untuk yang cocok). Akun organik = akses pengawas →
+  // tetap baca semua (RecordLogic.listRecordsFor yang menyaring visibilitasnya).
+  var records = (norm === RecordLogic.ORGANIK_EMAIL)
+    ? SheetDb.readRecords()
+    : SheetDb.readRecordsForPml(pmlEmail);
+  return { ok: true, records: RecordLogic.listRecordsFor(records, pmlEmail) };
 }
 
 function getRecord(pmlEmail, recordId) {
-  return RecordLogic.getRecordFor(SheetDb.readRecords(), pmlEmail, recordId);
+  var rec = SheetDb.readRecordById(recordId); // parse 1 baris, bukan seluruh tab
+  if (!rec) return { ok: false, error: 'NOT_FOUND' };
+  return RecordLogic.getRecordFor([rec], pmlEmail, recordId);
 }
 
 function pickRecord_(records, recordId) {
@@ -61,8 +70,12 @@ function saveDraft(pmlEmail, record) {
   lock.waitLock(10000); // serialisasi read-modify-write + keputusan append-vs-update
   try {
     var assigned = WilayahLogic.filterByPml(SheetDb.readAlokasi(), pmlEmail);
+    // Baca HANYA record yang disentuh (bukan seluruh tab). Ownership tetap
+    // ditegakkan applySaveDraft: kalau id ada tapi milik PML lain → FORBIDDEN;
+    // kalau id tak ada di server → RECOVERY buat ulang milik PML ini.
+    var existing = record && record.record_id ? SheetDb.readRecordById(record.record_id) : null;
     var res = RecordLogic.applySaveDraft(
-      SheetDb.readRecords(), pmlEmail, record, assigned,
+      existing ? [existing] : [], pmlEmail, record, assigned,
       new Date().toISOString(), 'R-' + Utilities.getUuid()
     );
     if (!res.ok) return res;
@@ -84,7 +97,8 @@ function deleteRecord(pmlEmail, recordId) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var res = RecordLogic.applyDeleteRecord(SheetDb.readRecords(), pmlEmail, recordId);
+    var existing = SheetDb.readRecordById(recordId);
+    var res = RecordLogic.applyDeleteRecord(existing ? [existing] : [], pmlEmail, recordId);
     if (!res.ok) return res;
     SheetDb.deleteRecordRow(recordId);
     return { ok: true, record_id: recordId };
@@ -141,8 +155,9 @@ function submitRecord(pmlEmail, record) {
     var assigned = WilayahLogic.filterByPml(SheetDb.readAlokasi(), pmlEmail);
     var questions = QuestionLogic.selectQuestions(SheetDb.readQuestions(), jenis, false);
     var rules = RuleLogic.selectRules(SheetDb.readRules(), jenis, false);
+    var existing = record && record.record_id ? SheetDb.readRecordById(record.record_id) : null;
     var res = SubmitLogic.applySubmit(
-      SheetDb.readRecords(), pmlEmail, record, assigned, questions, rules,
+      existing ? [existing] : [], pmlEmail, record, assigned, questions, rules,
       new Date().toISOString(), 'R-' + Utilities.getUuid(), computedRefs_(jenis)
     );
     if (!res.ok) return res;
@@ -184,6 +199,72 @@ function resetConfig(adminPassword) {
     SheetDb.writeQuestions(MockData.QUESTIONS);
     SheetDb.writeRules(MockData.RULES);
     return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ==== IMPOR FASIH (privileged) ====
+// Impor hasil ekspor SQL Lab FASIH (4 tab staging) → tab Records. Lihat
+// sql/TUTORIAL_IMPOR_FASIH.md & sql/query_ekspor_fasih_*.sql. Anomalies
+// DIHITUNG ULANG oleh RuleEvaluator (bukan disalin dari SQL) supaya identik
+// dengan mesin rule aplikasi.
+
+/** Buat 4 tab staging FASIH (header + format TEXT) supaya admin tinggal paste CSV. */
+function adminSetupFasihStaging(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    return { ok: true, tabs: SheetDb.ensureFasihStagingTabs() };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function importFasih(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var staging = SheetDb.readFasihStaging();
+    var built = FasihImport.buildRecords({
+      usaha: staging.usaha, keluarga: staging.keluarga,
+      rosterAk: staging.rosterAk, rosterMeteran: staging.rosterMeteran,
+      alokasi: SheetDb.readAlokasi(), nowIso: new Date().toISOString()
+    });
+    if (!built.records.length) {
+      return { ok: true, imported: 0, stats: built.stats, anomaliPerRule: {}, note: 'Tab staging FASIH kosong — belum ada yang diimpor.' };
+    }
+    // Rule + questions + refs dibaca SEKALI per jenis (bukan per record).
+    var allQ = SheetDb.readQuestions();
+    var allR = SheetDb.readRules();
+    var questions = {
+      usaha: QuestionLogic.selectQuestions(allQ, 'usaha', false),
+      keluarga: QuestionLogic.selectQuestions(allQ, 'keluarga', false)
+    };
+    var rules = {
+      usaha: RuleLogic.selectRules(allR, 'usaha', false),
+      keluarga: RuleLogic.selectRules(allR, 'keluarga', false)
+    };
+    var refs = { usaha: computedRefs_('usaha'), keluarga: computedRefs_('keluarga') };
+    var anomaliPerRule = {};
+    built.records.forEach(function (rec) {
+      var j = rec.jenis;
+      var res = SubmitLogic.computeAnomalies(j, rec.answers, questions[j], rules[j], refs[j]);
+      rec.answers = res.answers;      // simpan answers ter-augment (konsisten submit)
+      rec.anomalies = res.anomalies;
+      res.anomalies.forEach(function (a) { anomaliPerRule[a.rule_id] = (anomaliPerRule[a.rule_id] || 0) + 1; });
+    });
+    SheetDb.ensureRecordColumns();
+    var w = SheetDb.bulkUpsertRecords(built.records);
+    return { ok: true, imported: built.records.length, stats: built.stats, anomaliPerRule: anomaliPerRule, write: w };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
   } finally {
     lock.releaseLock();
   }
