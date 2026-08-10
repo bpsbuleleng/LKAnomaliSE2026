@@ -66,6 +66,7 @@ param AS (
        , CAST(NULLIF(rt.total_pengeluaran_keluarga_sebulan,'') AS DOUBLE)    AS pengeluaran_bln
   FROM tgr_fd68e454.root_table rt
   WHERE rt.ada_keluarga_value IN ('1','2')
+    -- AND SUBSTR(COALESCE(rt.level_6_full_code, rt.level_5_full_code, rt.level_4_full_code), 1, 10) IN ('5108010001','5108020001')  -- WAJIB level desa (10 digit: kdprov2+kdkab2+kdkec3+kddesa3 — kecamatan=7 digit TIDAK CUKUP, semua 9 kecamatan Buleleng >8000 baris sendiri2). Lihat TUTORIAL §4.
 )
 , ak AS (
   SELECT d.assignment_id, d.index1, d.hubungan_value, CAST(d.umur_ak AS INT) AS umur

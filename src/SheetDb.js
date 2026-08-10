@@ -429,6 +429,36 @@ var SheetDb = (function () {
     return out;
   }
 
+  /**
+   * Tambahkan baris ke SATU tab staging FASIH (append di bawah baris yang
+   * sudah ada, TIDAK menimpa) — dipakai alur impor per-grup-kecamatan supaya
+   * CSV dari tiap grup bisa ditumpuk tanpa perlu paste manual UI Sheets.
+   * `rowsArrays` HARUS urut kolom persis header tab (FasihImport.STAGING[key].headers).
+   * Tab dibuat dulu (format TEXT) kalau belum ada. @return jumlah baris ditulis.
+   */
+  function appendFasihStagingRows(stagingKey, rowsArrays) {
+    var st = FasihImport.STAGING[stagingKey];
+    if (!st) throw new Error('Staging key tidak dikenal: ' + stagingKey);
+    ensureTab(st.tab, st.headers);
+    if (!rowsArrays.length) return 0;
+    var sh = mustSheet(st.tab);
+    var startRow = sh.getLastRow() + 1;
+    ensureCapacity_(sh, startRow - 1 + rowsArrays.length);
+    sh.getRange(startRow, 1, rowsArrays.length, st.headers.length).setValues(rowsArrays);
+    return rowsArrays.length;
+  }
+
+  /** Kosongkan SATU tab staging FASIH (hapus baris data, header tetap) —
+   *  dipakai sebelum menumpuk grup kecamatan berikutnya. */
+  function clearFasihStagingTab(stagingKey) {
+    var st = FasihImport.STAGING[stagingKey];
+    if (!st) throw new Error('Staging key tidak dikenal: ' + stagingKey);
+    var sh = ss().getSheetByName(st.tab);
+    if (!sh) return;
+    var last = sh.getLastRow();
+    if (last > 1) sh.getRange(2, 1, last - 1, sh.getMaxColumns()).clearContent();
+  }
+
   /** Kosongkan SEMUA baris data Records — utilitas testing (lihat resetRecords). */
   function clearRecords() {
     var sh = mustSheet(TABS.RECORDS);
@@ -615,6 +645,8 @@ var SheetDb = (function () {
     bulkUpsertRecords: bulkUpsertRecords,
     ensureFasihStagingTabs: ensureFasihStagingTabs,
     readFasihStaging: readFasihStaging,
+    appendFasihStagingRows: appendFasihStagingRows,
+    clearFasihStagingTab: clearFasihStagingTab,
     upsertRecord: upsertRecord,
     deleteRecordRow: deleteRecordRow,
     backupRecords: backupRecords,

@@ -225,6 +225,45 @@ function adminSetupFasihStaging(adminPassword) {
   }
 }
 
+/**
+ * Tambahkan baris (array-of-array, urut kolom = header tab staging) ke SATU
+ * tab staging FASIH tanpa perlu paste manual di UI Sheets — dipakai alur
+ * ekspor per-grup-kecamatan (lihat TUTORIAL_IMPOR_FASIH.md §4) supaya CSV
+ * yang sudah didownload dari SQL Lab bisa dikirim langsung dari terminal.
+ * `stagingKey` salah satu dari: usaha | keluarga | rosterAk | rosterMeteran.
+ */
+function adminAppendFasihStagingRows(adminPassword, stagingKey, rowsArrays) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var written = SheetDb.appendFasihStagingRows(stagingKey, rowsArrays || []);
+    return { ok: true, stagingKey: stagingKey, written: written };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Kosongkan SATU tab staging FASIH (header tetap) — dipakai sebelum
+ *  menumpuk grup kecamatan berikutnya lewat adminAppendFasihStagingRows. */
+function adminClearFasihStagingTab(adminPassword, stagingKey) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    SheetDb.clearFasihStagingTab(stagingKey);
+    return { ok: true, stagingKey: stagingKey };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function importFasih(adminPassword) {
   var deny = requireAdmin_(adminPassword);
   if (deny) return deny;

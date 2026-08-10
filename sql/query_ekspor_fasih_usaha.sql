@@ -108,4 +108,5 @@ SELECT
 FROM us2 u
 JOIN flagged f ON f.assignment_id = u.assignment_id AND f.idx_unit = u.idx_unit
 LEFT JOIN idn i ON i.assignment_id = u.assignment_id
+-- WHERE SUBSTR(i.kode_wilayah, 1, 10) IN ('5108010001','5108010002')  -- WAJIB level desa (10 digit) — 8/9 kecamatan usaha >9000 unit total, sama seperti keluarga. Daftar grup siap pakai: sql/pengelompokan_desa_usaha.md. Lihat TUTORIAL §4.
 ORDER BY u.assignment_id, u.idx_unit;
