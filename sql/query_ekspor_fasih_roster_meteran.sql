@@ -4,9 +4,22 @@
    Superset SQL Lab · DB "Starrocks SE 2026" (25) · schema tgr_fd68e454.
    Output kolom = header tab staging "FASIH Roster Meteran". 1 baris = 1 meteran.
 
-   Cakupan: HANYA meteran dari assignment keluarga yang ter-flag K1–K7 (CTE flag
-   di bawah = SALINAN dari query_ekspor_fasih_keluarga.sql). daya_terpasang_value
+   Cakupan file ini: HANYA meteran dari assignment ter-flag K2/K4/K5/K6/K7
+   (CTE flag di bawah = SALINAN dari query_ekspor_fasih_keluarga.sql, MINUS
+   cabang K1/K3 — lihat REVISI 2026-08-11 di bawah). daya_terpasang_value
    '1' = 450 watt (dipakai K6). Aplikasi menghitung ulang anomalinya sendiri.
+
+   REVISI 2026-08-11 (PEMISAHAN K1/K3, bug duplikasi ditemukan): sama persis
+   dengan query_ekspor_fasih_roster_ak.sql (lihat catatan REVISI di sana untuk
+   kronologi lengkap) — cabang K1(ak_12)/K3(ak_agg) TIDAK BISA difilter
+   wilayah, jadi menjalankan versi lama (K1/K3 digabung + loop 21 grup wilayah)
+   menyebabkan duplikasi masif ke tab staging "FASIH Roster Meteran" (bagian
+   dari 9.972.724/10.000.000 sel workbook yang nyaris kena limit).
+
+   SOLUSI: K1/K3 DIPINDAH ke file terpisah
+   `query_ekspor_fasih_roster_meteran_k1k3.sql`, dijalankan HANYA 2 KALI TOTAL
+   (partisi 0 & 1, TANPA loop wilayah). File INI hanya berisi K2/K4/K5/K6/K7,
+   semuanya bisa difilter `kel`, AMAN dijalankan 21× (1x per grup wilayah).
    ============================================================================= */
 WITH
 param AS (
@@ -24,52 +37,15 @@ param AS (
          CAST(NULLIF(rt.total_pengeluaran_keluarga_sebulan,'') AS DOUBLE) AS pengeluaran_bln
   FROM tgr_fd68e454.root_table rt
   WHERE rt.ada_keluarga_value IN ('1','2')
-    -- AND SUBSTR(COALESCE(rt.level_6_full_code, rt.level_5_full_code, rt.level_4_full_code), 1, 10) IN ('5108010001','5108020001')  -- WAJIB level desa (10 digit: kdprov2+kdkab2+kdkec3+kddesa3 — kecamatan=7 digit TIDAK CUKUP, semua 9 kecamatan Buleleng >8000 baris sendiri2). Lihat TUTORIAL §4.
-)
-, ak AS (
-  SELECT d.assignment_id, d.index1, d.hubungan_value, d.status_kawin_value, CAST(d.umur_ak AS INT) AS umur
-  FROM tgr_fd68e454.nested_dtsen d WHERE d.keberadaan_dtsen_value IN ('1','5')
-)
-, ak_dis AS (
-  SELECT v.assignment_id, v.index1,
-         CASE WHEN v.dis_netra_value='1' OR v.dis_rungu_value='1' OR v.dis_wicara_value='1'
-                OR v.dis_fisik_value='1' OR v.dis_intelek_value='1' OR v.dis_mental_value='1'
-              THEN 1 ELSE 0 END AS disabilitas
-  FROM tgr_fd68e454.nested_dtsen_var v
+    AND SUBSTR(COALESCE(rt.level_6_full_code, rt.level_5_full_code, rt.level_4_full_code), 1, 10) IN ('5108010001','5108020001')  -- WAJIB GANTI: daftar kode desa 1 grup dari pengelompokan_desa_keluarga.md. WAJIB level desa (10 digit).
 )
 , meteran_rendah AS (
   SELECT m.assignment_id, MAX(CASE WHEN m.daya_terpasang_value='1' THEN 1 ELSE 0 END) AS ada_daya_rendah
   FROM tgr_fd68e454.nested_meteran m GROUP BY m.assignment_id
 )
-, ak_pos AS (
-  SELECT a.assignment_id, ROW_NUMBER() OVER (PARTITION BY a.assignment_id ORDER BY CAST(a.index1 AS INT)) AS rn,
-         a.hubungan_value AS hb, a.status_kawin_value AS sw FROM ak a
-)
-, ak_12 AS (
-  SELECT assignment_id, MAX(CASE WHEN rn=1 THEN hb END) AS hb1, MAX(CASE WHEN rn=1 THEN sw END) AS sw1,
-         MAX(CASE WHEN rn=2 THEN hb END) AS hb2, MAX(CASE WHEN rn=2 THEN sw END) AS sw2
-  FROM ak_pos GROUP BY assignment_id
-)
-, ak_agg AS (
-  SELECT a.assignment_id, COUNT(*) AS n_ak,
-         MIN(CASE WHEN a.hubungan_value='1' THEN a.umur END) AS umur_kk,
-         SUM(COALESCE(d.disabilitas,0)) AS n_disabilitas
-  FROM ak a LEFT JOIN ak_dis d ON d.assignment_id=a.assignment_id AND d.index1=a.index1
-  GROUP BY a.assignment_id
-)
-, flagged AS (   /* NB: cabang K1 (ak_12) & K3 (ak_agg baris ke-2) TIDAK bisa disaring lewat `kel`
-                   (join/subquery root_table+nested_dtsen* di sini = planner gagal lagi, Issue 1002)
-                   — makanya kedua cabang ini TETAP tanpa scope kecamatan/ada_keluarga_value walau
-                   filter LIKE di `kel` diaktifkan. Aman (superset, RuleEvaluator recompute), tapi
-                   artinya toggle kecamatan TIDAK memperkecil hasil K1/K3 sebanyak cabang lain. */
+, flagged AS (
   SELECT DISTINCT assignment_id FROM (
-      SELECT x.assignment_id FROM ak_12 x
-        WHERE x.hb1='1' AND x.hb2 IS NOT NULL
-          AND ((x.hb2='2' AND (x.sw1<>'2' OR x.sw2<>'2')) OR (x.sw1='2' AND x.hb2<>'2'))
-    UNION ALL SELECT k.assignment_id FROM kel k JOIN ak_agg g ON g.assignment_id=k.assignment_id
-        WHERE g.umur_kk < 10 AND k.status_kepemilikan_value='1'
-    UNION ALL SELECT g.assignment_id FROM ak_agg g WHERE g.n_ak > 1 AND g.n_disabilitas = g.n_ak
-    UNION ALL SELECT k.assignment_id FROM kel k CROSS JOIN param p
+      SELECT k.assignment_id FROM kel k CROSS JOIN param p
         WHERE k.luas_lantai IS NOT NULL AND k.jumlah_ak > 0
           AND (k.luas_lantai / k.jumlah_ak < p.p_luas_min_k4 OR k.luas_lantai / k.jumlah_ak > p.p_luas_max_k4)
     UNION ALL SELECT k.assignment_id FROM kel k

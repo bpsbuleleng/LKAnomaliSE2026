@@ -102,6 +102,28 @@ test('buildRecords keluarga: struktur record, join wilayah, pml_email, roster ur
   assert.equal(rec.answers.roster.meteran_listrik[0].b4r14b_n, 2);
 });
 
+test('buildRecords: baris rosterAk duplikat (assignment_id+index1 sama, dari 2 query overlap) di-dedup, TIDAK menggandakan anggota', () => {
+  // Skenario nyata (2026-08-17): query "gap proxy" sengaja BOLEH overlap
+  // dengan query grup-wilayah/K1K3 yang sudah diekspor lebih dulu — baris
+  // yang sama bisa muncul di staging dari 2 sumber CSV berbeda. Tanpa dedup,
+  // groupRoster akan push 2x, menggandakan b1r9/b3r18c dan roster_all K3.
+  const built = FasihImport.buildRecords({
+    keluarga: [keluargaRow()],
+    rosterAk: [
+      akRow({ index1: '1', hubungan_value: '1', nilai_pend_pekerjaan: 'Rp 4.000.000' }),
+      akRow({ index1: '2', hubungan_value: '2' }),
+      // Duplikat PERSIS index1=1 & index1=2 (simulasi overlap 2 file CSV)
+      akRow({ index1: '1', hubungan_value: '1', nilai_pend_pekerjaan: 'Rp 4.000.000' }),
+      akRow({ index1: '2', hubungan_value: '2' })
+    ],
+    alokasi: ALOKASI, nowIso: NOW
+  });
+  assert.equal(built.records.length, 1);
+  const ak = built.records[0].answers.roster.anggota_keluarga;
+  assert.equal(ak.length, 2); // BUKAN 4 — duplikat terbuang
+  assert.equal(built.stats.rosterAkRows, 2);
+});
+
 test('buildRecords usaha: 2 unit dalam 1 assignment → 2 record ber-id beda; r13g string', () => {
   const built = FasihImport.buildRecords({
     usaha: [

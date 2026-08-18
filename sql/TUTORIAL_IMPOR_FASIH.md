@@ -40,7 +40,14 @@ menjaga leading zero `kbli_akhir`/`kode_wilayah`). Header baris-1 sudah terisi;
 
 ---
 
-## 1. Jalankan 4 query di SQL Lab & simpan hasilnya ke file
+## 1. Jalankan query di SQL Lab & simpan hasilnya ke file
+
+> **PENTING**: tabel di bawah ini menggambarkan versi PALING AWAL (1 query =
+> 1 file, TANPA filter wilayah) — sudah TIDAK BERLAKU untuk data Buleleng
+> yang sebenarnya (>9000 baris per query, kena hard-cap server). **Untuk cara
+> menjalankan yang BENAR & TERKINI (per grup wilayah + pemisahan K1/K3),
+> lompat ke §4.** Bagian ini disisakan sebagai gambaran umum isi tiap query
+> saja (6 file sekarang, bukan 4 — lihat §4 poin 1-4).
 
 Buka [https://fasih-dashboard.bps.go.id/superset/sqllab/](https://fasih-dashboard.bps.go.id/superset/sqllab/) → DB **"Starrocks SE
 2026"**. Jalankan **satu per satu** (beri jeda beberapa detik antar-query supaya
@@ -50,11 +57,13 @@ tidak kena "Bot Detected"):
 |----|------------|----------------------|-----|
 | 1 | `sql/query_ekspor_fasih_usaha.sql` | `fasih_usaha.csv` | 1 baris / unit usaha ter-flag U1–U7 |
 | 2 | `sql/query_ekspor_fasih_keluarga.sql` | `fasih_keluarga.csv` | 1 baris / keluarga ter-flag K2/K4/K5/K6/K7 presisi + K1/K3 proxy (lihat catatan) |
-| 3 | `sql/query_ekspor_fasih_roster_ak.sql` | `fasih_roster_ak.csv` | 1 baris / anggota keluarga (assignment ter-flag) |
-| 4 | `sql/query_ekspor_fasih_roster_meteran.sql` | `fasih_roster_meteran.csv` | 1 baris / meteran (assignment ter-flag) |
+| 3 | `sql/query_ekspor_fasih_roster_ak.sql` | `fasih_roster_ak.csv` | 1 baris / anggota keluarga ter-flag K2/K4/K5/K6/K7 (K1/K3 di file terpisah, lihat §4) |
+| 4 | `sql/query_ekspor_fasih_roster_meteran.sql` | `fasih_roster_meteran.csv` | 1 baris / meteran ter-flag K2/K4/K5/K6/K7 (K1/K3 di file terpisah, lihat §4) |
+| 5 | `sql/query_ekspor_fasih_roster_ak_k1k3.sql` | `rosterAk_k1k3_p0.csv`/`_p1.csv` | 1 baris / anggota keluarga ter-flag K1 atau K3 (2x jalan, TANPA filter wilayah) |
+| 6 | `sql/query_ekspor_fasih_roster_meteran_k1k3.sql` | `rosterMeteran_k1k3_p0.csv`/`_p1.csv` | 1 baris / meteran ter-flag K1 atau K3 (2x jalan, TANPA filter wilayah) |
 
 Cara menyimpan di SQL Lab: setelah hasil muncul, klik **"Download to CSV"**
-(atau ikon unduh di panel Results). Simpan keempatnya di komputer dulu — inilah
+(atau ikon unduh di panel Results). Simpan hasilnya di komputer dulu — inilah
 "file" tempat kamu bisa memeriksa/menambah data manual sebelum masuk spreadsheet.
 
 **Catatan soal cakupan K1/K3 di query keluarga.** K1 & K3 butuh data dari
@@ -92,6 +101,15 @@ keluarga ≥2 anggota yang sebenarnya "bersih" ikut terimpor.
   pakai `ORDER BY` (sempat memicu `Invalid plan` planner StarRocks bersama
   `TopNOperator`, sama seperti kasus di query keluarga) — urutan baris tidak
   memengaruhi hasil impor.
+- **Window function juga memicu bug planner yang SAMA** (TERVERIFIKASI
+  2026-08-08): `ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)` yang
+  dipakai kedua file itu untuk cari posisi AK-1/AK-2 (dipakai rule K1)
+  menghasilkan error `Invalid plan`/`PhysicalTopNOperator` identik dengan
+  `ORDER BY` biasa — `ORDER BY` DI DALAM window function tetap memicu bug
+  yang sama walau tidak ada `ORDER BY` eksplisit di akhir SELECT. Sudah
+  diganti dengan agregasi `MIN(index1)` + JOIN balik (tanpa window function
+  sama sekali) — kalau nanti perlu menulis query serupa, hindari `OVER (...)`
+  apa pun yang menyentuh kombinasi `root_table`+`nested_dtsen*`.
 
 ---
 
@@ -364,6 +382,135 @@ sumbernya dari `root_table` tidak bisa dioper ke cabang yang sumbernya
 di tiap jalan (bukan per-grup) — aman diimpor berkali-kali (idempoten), tapi
 jangan kaget kalau `fasih_keluarga.csv`/`fasih_roster_ak.csv` tidak mengecil
 signifikan hanya dari filter wilayah saja.
+
+### PENTING — kenapa pengelompokan `keluarga` SAJA tidak cukup untuk roster, dan solusi finalnya (TEMUAN 2026-08-08/10)
+
+`sql/pengelompokan_desa_keluarga.md` disusun dari estimasi jumlah **assignment**
+(`n_estimasi_flagged_atas_proxy`) per desa — cocok untuk memprediksi jumlah baris
+query `keluarga` (1 baris = 1 assignment). **TIDAK cocok** untuk memprediksi
+jumlah baris query `roster_ak`/`roster_meteran`, karena kedua query itu
+mengeluarkan **1 baris per anggota/meteran**, bukan 1 baris per assignment.
+
+**Bukti nyata #1** (2026-08-08): grup 07 cuma berisi 1 desa dengan total
+keluarga ter-flag 441 (jauh di bawah 8000), tapi hasil `roster_ak`/
+`roster_meteran` untuk grup itu tetap **persis 9000 baris**.
+
+**Bukti nyata #2 & AKAR MASALAH SESUNGGUHNYA** (2026-08-10): diselidiki lebih
+jauh, ternyata penyebab utamanya BUKAN filter wilayah yang kurang kecil —
+cabang K1/K3 (`ak_12`/`ak_agg` baris ke-2 di `flagged`) **TIDAK PERNAH
+tersaring filter wilayah sama sekali** (dijelaskan di komentar file query:
+join `root_table`+`nested_dtsen*` untuk menyaringnya = Issue 1002 lagi). Jadi
+cabang ini SELALU mengembalikan **SELURUH Buleleng** di setiap jalan, berapa
+pun kecilnya filter desa yang dipasang di `kel`. Baseline K1∪K3 (tanpa filter
+apa pun) diukur = **13.024 baris anggota** — di atas cap 9000 dengan
+sendirinya, TERLEPAS dari pemecahan wilayah apa pun. Ini kenapa memecah
+wilayah lebih kecil lagi (sampai level SLS) TIDAK PERNAH bisa menyelesaikan
+masalah roster: bagian K1/K3-nya tetap 13.024 di setiap jalan.
+
+**REVISI 2026-08-11 — solusi "SILANG PENUH" (21 grup × 2 partisi digabung
+dalam SATU file) di atas TERBUKTI SALAH DESAIN, jangan dipakai:** karena
+cabang K1/K3 TIDAK PERNAH tersaring filter wilayah, menjalankan file gabungan
+itu 21 kali (sekali per grup) berarti partisi K1/K3 yang SAMA PERSIS
+ter-*append* ULANG ke tab staging di SETIAP dari 21 grup — bukan 42 baris
+data unik, tapi ~21× lipat ganda dari partisi K1/K3 itu sendiri. Akibatnya
+tab staging `FASIH Roster AK` membengkak ke **229.782 baris** (dari
+ekspektasi wajar puluhan ribu) dan workbook Google Sheets nyaris kena limit
+**10 juta sel** (9.972.724/10.000.000 saat ditemukan, 2026-08-11). Staging
+sudah dibersihkan (`node scripts/sheet-admin.js shrink-fasih rosterAk` dst,
+lihat bagian "Diagnostik ukuran sel" di bawah).
+
+**SOLUSI FINAL (2026-08-11) — pisahkan K1/K3 jadi file SENDIRI, dijalankan
+HANYA 2× TOTAL, TIDAK di-loop per grup wilayah:**
+
+`query_ekspor_fasih_roster_ak.sql` & `roster_meteran.sql` SEKARANG hanya
+berisi cabang K2/K4/K5/K6/K7 (semuanya bisa difilter wilayah lewat `kel`) —
+**AMAN dijalankan 21× (1x per grup, TANPA partisi tambahan)**, sama seperti
+`keluarga`/`usaha`. Cabang K1/K3 dipindah ke 2 file BARU:
+`query_ekspor_fasih_roster_ak_k1k3.sql` dan
+`query_ekspor_fasih_roster_meteran_k1k3.sql` — file ini **TIDAK PUNYA filter
+wilayah sama sekali** (memang tidak relevan untuk K1/K3) dan **HANYA
+dijalankan 2 KALI TOTAL**: sekali dengan kedua baris
+`ABS(MOD(MURMUR_HASH3_32(...), 2)) = 0`, sekali lagi dengan `= 1`. Hasilnya
+di-append ke tab staging YANG SAMA (`FASIH Roster AK`/`FASIH Roster Meteran`)
+dengan nama file `rosterAk_k1k3_p0.csv`/`_p1.csv` (dan padanannya untuk
+meteran) — TIDAK diulang per grup wilayah.
+
+`MURMUR_HASH3_32` = fungsi hash biasa StarRocks (bukan window function/
+`ORDER BY`), aman dari Issue 1002 karena kedua file k1k3 cuma menyentuh
+`nested_dtsen`/`nested_dtsen_var`, tidak ada `root_table`. **`ABS()` WAJIB**
+(bukan estetika) — di StarRocks, `MOD` mempertahankan tanda dari argumen
+pertama, dan `MURMUR_HASH3_32` bisa mengembalikan nilai negatif, jadi tanpa
+`ABS()` sisa `-1` tidak akan match `=0` MAUPUN `=1` dan baris itu hilang dari
+kedua partisi. **TERVERIFIKASI 2026-08-11**: partisi 0 = 6.290 baris anggota,
+partisi 1 = 6.851 baris anggota, total 13.141 (dekat estimasi 13.024,
+seimbang, jauh di bawah cap 9000) — lihat `sql/query_cek_hash_function.sql`
+untuk query verifikasinya (boleh dijalankan ulang kapan saja untuk
+double-check, tidak wajib mengulang tiap sesi karena sudah terverifikasi).
+
+**Cara menjalankan roster_ak & roster_meteran mulai sekarang (SKEMA FINAL):**
+
+1. `query_ekspor_fasih_roster_ak.sql` (K2/K4/K5/K6/K7): jalankan 21× — 1x per
+   grup desa di `pengelompokan_desa_keluarga.md`, filter di CTE `kel`, TANPA
+   partisi. Sama seperti `query_ekspor_fasih_keluarga.sql`.
+2. `query_ekspor_fasih_roster_meteran.sql` (K2/K4/K5/K6/K7): sama, 21×.
+3. `query_ekspor_fasih_roster_ak_k1k3.sql` (K1/K3): jalankan TEPAT 2× TOTAL
+   (partisi 0, lalu partisi 1) — TIDAK ADA loop wilayah untuk file ini.
+4. `query_ekspor_fasih_roster_meteran_k1k3.sql` (K1/K3): sama, TEPAT 2× TOTAL.
+5. **Total jalan roster: 21+21+2+2 = 46** (bukan 84 seperti rencana silang
+   lama, dan bukan 42 seperti rencana sebelum itu — 46 adalah desain yang
+   BENAR, sudah tidak ada duplikasi).
+6. Beri nama file CSV yang jelas: `rosterAk_01.csv` ... `rosterAk_21.csv` (dari
+   file grup), `rosterAk_k1k3_p0.csv`/`rosterAk_k1k3_p1.csv` (dari file k1k3);
+   padanan yang sama untuk `rosterMeteran`. `fasih-import-csv.js`/
+   `fasih-import-all.js` menumpuk (append) & idempoten, jadi aman memasukkan
+   semua 46 file secara berurutan tanpa peduli urutan.
+7. Query `keluarga` & `usaha` TIDAK terkena masalah ini sama sekali —
+   `keluarga` sudah SELESAI dijalankan (131.768 baris valid di staging,
+   2026-08-11), `usaha` juga SELESAI (7.571 baris). JANGAN diulang.
+
+### BUG LANJUTAN ditemukan pasca-impor (2026-08-17) — gap proxy K1/K3 di roster
+
+Setelah 46 jalan roster di atas dijalankan & 139.337 record diimpor
+(2026-08-13/14), `anomali-summary` menunjukkan **K5 melonjak ke 121.444**
+(ekspektasi ~7.570) dan **K2 ke 1.221** (ekspektasi ~3) — jauh di luar variasi
+wajar. Akar masalah: `query_ekspor_fasih_keluarga.sql` punya cabang
+`flag_k1k3_proxy` (`root_table WHERE jumlah_ak >= 2`, PROXY LONGGAR) yang
+memasukkan assignment ke staging **keluarga**. Tapi skema roster final (poin
+1-4 di atas) TIDAK punya padanan proxy ini — `roster_ak.sql` cuma K2/K4/K5/K6/K7,
+`roster_ak_k1k3.sql` cuma K1/K3 PRESISI (bukan proxy). Assignment yang match
+`jumlah_ak>=2` tapi TIDAK match K1/K3 presisi ATAU K2/K4/K5/K6/K7 apa pun
+**tidak pernah** diekspor ke roster manapun — rosternya kosong di staging,
+`b1r9`/`b3r18c` (computed dari `SUM` roster) jadi **0 secara eksplisit**
+(bukan hilang/undefined), yang memicu K5 (`b3r18c < b4r16`) secara PALSU
+untuk hampir semua assignment yang kena gap ini.
+
+**Perbaikan**: 2 file BARU `query_ekspor_fasih_roster_ak_gap_proxy.sql` &
+`query_ekspor_fasih_roster_meteran_gap_proxy.sql` — mengekspor SEMUA anggota
+dari assignment `jumlah_ak>=2` (mirror persis kondisi `flag_k1k3_proxy`),
+filter wilayah 21× seperti roster_ak.sql biasa (kondisi ini sumbernya
+`root_table`, bisa difilter, beda dari K1/K3 presisi). File ini **BOLEH
+OVERLAP** dengan roster_ak.sql & roster_ak_k1k3.sql yang sudah diekspor
+(assignment yang sama bisa match keduanya) — **WAJIB** `FasihImport.groupRoster`
+versi TERBARU (deploy v54, 2026-08-17) yang sudah DEDUP by
+`(assignment_id, index1)` sebelum menjalankan file ini; versi lama TIDAK
+dedup dan akan menggandakan anggota kalau ada overlap.
+
+**Cara jalankan**: 21× (1x per grup wilayah, kode desa SAMA dengan
+`pengelompokan_desa_keluarga.md`), simpan `rosterAk_gap_01.csv` ...
+`_21.csv` & `rosterMeteran_gap_01.csv` ... `_21.csv`, append ke tab staging
+YANG SAMA (`FASIH Roster AK`/`FASIH Roster Meteran`) via
+`fasih-import-csv.js`/`fasih-import-all.js` seperti biasa, lalu jalankan
+`import-fasih` LAGI — `bulkUpsertRecords` menimpa record dengan `record_id`
+sama (idempoten), jadi 139.337 record yang sudah salah otomatis diperbaiki
+tanpa perlu hapus manual dulu.
+
+**Diagnostik ukuran sel (kalau curiga staging membengkak lagi)**:
+`node scripts/sheet-admin.js sheet-sizes` melaporkan `maxRows`/`cellsAllocated`
+tiap tab (termasuk workbook `totalCells`, limit Google Sheets = 10 juta).
+`node scripts/sheet-admin.js shrink-fasih <usaha|keluarga|rosterAk|rosterMeteran>`
+memangkas kapasitas grid tab staging itu kembali pas ke data terisi + buffer
+kecil TANPA menghapus data (beda dari `adminClearFasihStagingTab` yang
+menghapus data) — pakai kalau `maxRows` jauh lebih besar dari `lastRow`.
 
 ---
 

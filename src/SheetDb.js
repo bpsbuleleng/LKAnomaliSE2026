@@ -418,6 +418,73 @@ var SheetDb = (function () {
     return out;
   }
 
+  /** Pangkas kapasitas grid (maxRows DAN maxCols) SATU tab staging FASIH
+   *  kembali pas ke data terisi + buffer kecil, TANPA menghapus isi (beda
+   *  dari clearFasihStagingTab yang menghapus data). Dipakai kalau maxRows
+   *  sudah jauh lebih besar dari lastRow akibat ensureCapacity_ menumpuk
+   *  buffer di banyak panggilan append (lihat catatan di
+   *  clearFasihStagingTab), ATAU kalau maxCols masih di default Google
+   *  Sheets (26) padahal tab cuma butuh sedikit kolom (mis. FASIH Roster
+   *  Meteran cuma 3 kolom tapi grid defaultnya 26 — 23 kolom kosong ×
+   *  puluhan ribu baris = ratusan ribu sel terbuang, ditemukan 2026-08-13
+   *  saat import-fasih kena limit 10 juta sel workbook meski semua tab
+   *  staging sudah "pas" di sisi baris). */
+  function shrinkFasihStagingTab(stagingKey) {
+    var st = FasihImport.STAGING[stagingKey];
+    if (!st) throw new Error('Staging key tidak dikenal: ' + stagingKey);
+    var sh = ss().getSheetByName(st.tab);
+    if (!sh) return { before: 0, after: 0 };
+    var maxRows = sh.getMaxRows();
+    var lastRow = sh.getLastRow();
+    var keepRows = Math.max(lastRow + 50, 200);
+    if (maxRows > keepRows) sh.deleteRows(keepRows + 1, maxRows - keepRows);
+    var maxCols = sh.getMaxColumns();
+    var keepCols = st.headers.length;
+    if (maxCols > keepCols) sh.deleteColumns(keepCols + 1, maxCols - keepCols);
+    return { before: maxRows, after: sh.getMaxRows(), lastRow: lastRow, colsBefore: maxCols, colsAfter: sh.getMaxColumns() };
+  }
+
+  /** Diagnostik RINGAN: baca N baris tab Records dari posisi tertentu (bukan
+   *  seluruh tab) — dipakai untuk sampling cepat (awal/tengah/akhir) tanpa
+   *  risiko kena limit 6 menit Apps Script yang pernah terjadi saat
+   *  readRecords() dipanggil untuk tab 139rb+ baris. `startRow` 1-based
+   *  RELATIF ke baris data (1 = baris data pertama, SETELAH header). */
+  function sampleRecordRows(startRow, count) {
+    var sh = mustSheet(TABS.RECORDS);
+    var lastRow = sh.getLastRow();
+    if (lastRow <= 1) return { lastRow: lastRow, rows: [] };
+    var from = Math.max(2, startRow + 1);
+    var n = Math.min(count, lastRow - from + 1);
+    if (n <= 0) return { lastRow: lastRow, rows: [] };
+    var values = sh.getRange(from, 1, n, RECORD_HEADERS.length).getDisplayValues();
+    var rows = values.map(function (r) {
+      var obj = {};
+      RECORD_HEADERS.forEach(function (h, i) { obj[h] = r[i]; });
+      return obj;
+    });
+    return { lastRow: lastRow, rows: rows };
+  }
+
+  /** Diagnostik: ukuran grid (maxRows×maxCols) & baris data terisi tiap tab
+   *  di spreadsheet — dipakai untuk mendiagnosis error "above the limit of
+   *  10000000 cells" (grid ter-alokasi bisa jauh lebih besar dari data
+   *  terisi, mis. akibat ensureCapacity_ yang menambah baris tanpa pernah
+   *  dipangkas balik). Read-only, tidak mengubah apa pun. */
+  function sheetSizes() {
+    return ss().getSheets().map(function (sh) {
+      var maxRows = sh.getMaxRows();
+      var maxCols = sh.getMaxColumns();
+      return {
+        tab: sh.getName(),
+        maxRows: maxRows,
+        maxCols: maxCols,
+        cellsAllocated: maxRows * maxCols,
+        lastRow: sh.getLastRow(),
+        lastCol: sh.getLastColumn()
+      };
+    });
+  }
+
   /** Baca 4 tab staging FASIH → {usaha, keluarga, rosterAk, rosterMeteran}
    *  (array objek ber-key header; tab belum ada → []). */
   function readFasihStaging() {
@@ -457,6 +524,15 @@ var SheetDb = (function () {
     if (!sh) return;
     var last = sh.getLastRow();
     if (last > 1) sh.getRange(2, 1, last - 1, sh.getMaxColumns()).clearContent();
+    // clearContent() TIDAK memangkas kapasitas grid (maxRows) — cuma isi sel
+    // yang kosong, alokasi tetap. Tanpa ini, ensureCapacity_ (dipanggil tiap
+    // appendFasihStagingRows) terus menambah baris tanpa pernah menyusut, dan
+    // grid raksasa (ratusan ribu baris) menyumbang ke limit 10 juta sel
+    // workbook walau datanya sudah kosong (ditemukan & diperbaiki 2026-08-11,
+    // FASIH Roster AK sempat 229.802 baris grid untuk ~13rb baris data nyata).
+    var maxRows = sh.getMaxRows();
+    var keepRows = 200; // sisakan sedikit buffer di atas header, hindari re-insert tiap append kecil
+    if (maxRows > keepRows) sh.deleteRows(keepRows + 1, maxRows - keepRows);
   }
 
   /** Kosongkan SEMUA baris data Records — utilitas testing (lihat resetRecords). */
@@ -647,6 +723,9 @@ var SheetDb = (function () {
     readFasihStaging: readFasihStaging,
     appendFasihStagingRows: appendFasihStagingRows,
     clearFasihStagingTab: clearFasihStagingTab,
+    shrinkFasihStagingTab: shrinkFasihStagingTab,
+    sheetSizes: sheetSizes,
+    sampleRecordRows: sampleRecordRows,
     upsertRecord: upsertRecord,
     deleteRecordRow: deleteRecordRow,
     backupRecords: backupRecords,

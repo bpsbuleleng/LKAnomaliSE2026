@@ -132,11 +132,24 @@ var FasihImport = (function () {
   }
 
   // Kelompokkan baris roster per assignment_id, urut Number(index1) (stabil).
+  // Dedup by (assignment_id, index1): staging FASIH bisa berisi baris yang
+  // sama dari 2 query berbeda yang sengaja/tidak sengaja overlap (mis. satu
+  // assignment match KEDUA kondisi K2-K7 per-wilayah dan proxy jumlah_ak>=2
+  // dari query terpisah) — tanpa dedup ini, anggota roster tergandakan,
+  // merusak b1r9/b3r18c (dihitung 2x) dan K3 (roster_all disabilitas).
+  // Baris pertama yang ditemukan untuk kombinasi (assignment_id, index1)
+  // dipakai, duplikat berikutnya diabaikan (datanya identik, sumbernya
+  // query berbeda tapi anggota yang sama).
   function groupRoster(rows, map, extraConst) {
     var byAssign = {};
+    var seen = {};
     (rows || []).forEach(function (r) {
       var aid = s(r.assignment_id);
       if (!aid) return;
+      var idx = s(r.index1);
+      var dedupKey = aid + '' + idx;
+      if (seen[dedupKey]) return;
+      seen[dedupKey] = true;
       if (!byAssign[aid]) byAssign[aid] = [];
       var rec = applyMap(map, r);
       Object.keys(extraConst || {}).forEach(function (k) { rec[k] = extraConst[k]; });

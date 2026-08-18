@@ -225,6 +225,82 @@ function adminSetupFasihStaging(adminPassword) {
   }
 }
 
+/** Pangkas kapasitas grid (maxRows) SATU tab staging FASIH tanpa menghapus
+ *  data — dipakai kalau adminSheetSizes menunjukkan maxRows jauh lebih besar
+ *  dari lastRow (grid gemuk akibat ensureCapacity_ menumpuk buffer). */
+function adminShrinkFasihStagingTab(adminPassword, stagingKey) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var res = SheetDb.shrinkFasihStagingTab(stagingKey);
+    return {
+      ok: true, stagingKey: stagingKey, before: res.before, after: res.after, lastRow: res.lastRow,
+      colsBefore: res.colsBefore, colsAfter: res.colsAfter
+    };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Ringkasan anomaliPerRule DARI DATA YANG SUDAH TERSIMPAN di Records (baca
+ *  kolom `anomalies` yang sudah ter-JSON, TIDAK menjalankan ulang
+ *  RuleEvaluator) — dipakai kalau importFasih sempat menuliskan semua record
+ *  dengan sukses tapi timeout ("Melebihi jumlah eksekusi maksimum") sebelum
+ *  sempat mengembalikan ringkasan ke client (baca jauh lebih murah daripada
+ *  tulis+hitung ulang, jadi aman untuk tab besar). */
+function adminRecordsAnomaliSummary(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  try {
+    var records = SheetDb.readRecords();
+    var perRule = {};
+    var perSumber = {};
+    records.forEach(function (r) {
+      perSumber[r.sumber || 'coretan'] = (perSumber[r.sumber || 'coretan'] || 0) + 1;
+      (r.anomalies || []).forEach(function (a) {
+        perRule[a.rule_id] = (perRule[a.rule_id] || 0) + 1;
+      });
+    });
+    return { ok: true, totalRecords: records.length, perSumber: perSumber, anomaliPerRule: perRule };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  }
+}
+
+/** Diagnostik RINGAN read-only: baca N baris tab Records dari posisi
+ *  tertentu (bukan seluruh tab) — dipakai sampling cepat tanpa risiko kena
+ *  limit 6 menit Apps Script. `startRow` 1-based relatif ke baris data
+ *  (1 = baris data pertama). */
+function adminSampleRecords(adminPassword, startRow, count) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  try {
+    var res = SheetDb.sampleRecordRows(startRow, count);
+    return { ok: true, lastRow: res.lastRow, rows: res.rows };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  }
+}
+
+/** Diagnostik read-only: ukuran grid (maxRows×maxCols) tiap tab — dipakai
+ *  untuk mencari penyebab error "above the limit of 10000000 cells" saat
+ *  append staging FASIH. Tidak mengubah apa pun, tidak butuh lock. */
+function adminSheetSizes(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  try {
+    var sizes = SheetDb.sheetSizes();
+    var totalCells = sizes.reduce(function (sum, s) { return sum + s.cellsAllocated; }, 0);
+    return { ok: true, totalCells: totalCells, sheets: sizes };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
+  }
+}
+
 /**
  * Tambahkan baris (array-of-array, urut kolom = header tab staging) ke SATU
  * tab staging FASIH tanpa perlu paste manual di UI Sheets — dipakai alur
@@ -261,6 +337,28 @@ function adminClearFasihStagingTab(adminPassword, stagingKey) {
     return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
   } finally {
     lock.releaseLock();
+  }
+}
+
+/** Dry-run read-only: hitung berapa record yang AKAN dihasilkan importFasih
+ *  (assignment unik lintas keluarga/usaha/roster) TANPA menulis apa pun ke
+ *  tab Records — dipakai untuk mengukur kebutuhan sel sebelum import
+ *  sungguhan, supaya tahu pasti apakah cukup ruang di bawah limit 10 juta
+ *  sel workbook. Tidak menyentuh RuleEvaluator (tidak perlu hitung anomali
+ *  untuk sekadar tahu jumlah baris), jadi jauh lebih ringan dari importFasih. */
+function adminFasihDryRun(adminPassword) {
+  var deny = requireAdmin_(adminPassword);
+  if (deny) return deny;
+  try {
+    var staging = SheetDb.readFasihStaging();
+    var built = FasihImport.buildRecords({
+      usaha: staging.usaha, keluarga: staging.keluarga,
+      rosterAk: staging.rosterAk, rosterMeteran: staging.rosterMeteran,
+      alokasi: SheetDb.readAlokasi(), nowIso: new Date().toISOString()
+    });
+    return { ok: true, recordCount: built.records.length, stats: built.stats };
+  } catch (e) {
+    return { ok: false, error: 'SHEET_ERROR', detail: String((e && e.message) || e) };
   }
 }
 

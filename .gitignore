@@ -4,3 +4,4 @@ playwright-report/
 .env
 master/
 export/
+sql/

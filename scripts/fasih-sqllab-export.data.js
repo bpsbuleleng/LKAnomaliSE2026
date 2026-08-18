@@ -109,6 +109,12 @@ SELECT
 FROM kel k
 WHERE k.assignment_id IN (SELECT assignment_id FROM flagged);`;
 
+// REVISI 2026-08-11: K1/K3 dipisah ke ROSTER_AK_K1K3_SQL/ROSTER_METERAN_K1K3_SQL
+// (dijalankan 2x total, TANPA loop wilayah) — file ini (K2/K4/K5/K6/K7 saja)
+// AMAN di-loop 21x per grup wilayah tanpa duplikasi. Lihat catatan REVISI di
+// sql/query_ekspor_fasih_roster_ak.sql untuk kronologi bug duplikasi yang
+// menyebabkan FASIH Roster AK membengkak ke 229.782 baris / nyaris kena limit
+// 10 juta sel workbook.
 const ROSTER_AK_SQL = `WITH
 param AS (
   SELECT 3.0 AS p_luas_min_k4, 200.0 AS p_luas_max_k4, 100000.0 AS p_listrik_k6, 10 AS p_jml_ak_k7
@@ -127,46 +133,13 @@ param AS (
   WHERE rt.ada_keluarga_value IN ('1','2')
     AND SUBSTR(COALESCE(rt.level_6_full_code, rt.level_5_full_code, rt.level_4_full_code), 1, 10) IN (__KODE_DESA__)
 )
-, ak AS (
-  SELECT d.assignment_id, d.index1, d.hubungan_value, d.status_kawin_value, CAST(d.umur_ak AS INT) AS umur
-  FROM tgr_fd68e454.nested_dtsen d WHERE d.keberadaan_dtsen_value IN ('1','5')
-)
-, ak_dis AS (
-  SELECT v.assignment_id, v.index1,
-         CASE WHEN v.dis_netra_value='1' OR v.dis_rungu_value='1' OR v.dis_wicara_value='1'
-                OR v.dis_fisik_value='1' OR v.dis_intelek_value='1' OR v.dis_mental_value='1'
-              THEN 1 ELSE 0 END AS disabilitas
-  FROM tgr_fd68e454.nested_dtsen_var v
-)
 , meteran_rendah AS (
   SELECT m.assignment_id, MAX(CASE WHEN m.daya_terpasang_value='1' THEN 1 ELSE 0 END) AS ada_daya_rendah
   FROM tgr_fd68e454.nested_meteran m GROUP BY m.assignment_id
 )
-, ak_pos AS (
-  SELECT a.assignment_id, ROW_NUMBER() OVER (PARTITION BY a.assignment_id ORDER BY CAST(a.index1 AS INT)) AS rn,
-         a.hubungan_value AS hb, a.status_kawin_value AS sw FROM ak a
-)
-, ak_12 AS (
-  SELECT assignment_id, MAX(CASE WHEN rn=1 THEN hb END) AS hb1, MAX(CASE WHEN rn=1 THEN sw END) AS sw1,
-         MAX(CASE WHEN rn=2 THEN hb END) AS hb2, MAX(CASE WHEN rn=2 THEN sw END) AS sw2
-  FROM ak_pos GROUP BY assignment_id
-)
-, ak_agg AS (
-  SELECT a.assignment_id, COUNT(*) AS n_ak,
-         MIN(CASE WHEN a.hubungan_value='1' THEN a.umur END) AS umur_kk,
-         SUM(COALESCE(d.disabilitas,0)) AS n_disabilitas
-  FROM ak a LEFT JOIN ak_dis d ON d.assignment_id=a.assignment_id AND d.index1=a.index1
-  GROUP BY a.assignment_id
-)
 , flagged AS (
   SELECT DISTINCT assignment_id FROM (
-      SELECT x.assignment_id FROM ak_12 x
-        WHERE x.hb1='1' AND x.hb2 IS NOT NULL
-          AND ((x.hb2='2' AND (x.sw1<>'2' OR x.sw2<>'2')) OR (x.sw1='2' AND x.hb2<>'2'))
-    UNION ALL SELECT k.assignment_id FROM kel k JOIN ak_agg g ON g.assignment_id=k.assignment_id
-        WHERE g.umur_kk < 10 AND k.status_kepemilikan_value='1'
-    UNION ALL SELECT g.assignment_id FROM ak_agg g WHERE g.n_ak > 1 AND g.n_disabilitas = g.n_ak
-    UNION ALL SELECT k.assignment_id FROM kel k CROSS JOIN param p
+      SELECT k.assignment_id FROM kel k CROSS JOIN param p
         WHERE k.luas_lantai IS NOT NULL AND k.jumlah_ak > 0
           AND (k.luas_lantai / k.jumlah_ak < p.p_luas_min_k4 OR k.luas_lantai / k.jumlah_ak > p.p_luas_max_k4)
     UNION ALL SELECT k.assignment_id FROM kel k
@@ -214,7 +187,36 @@ param AS (
   WHERE rt.ada_keluarga_value IN ('1','2')
     AND SUBSTR(COALESCE(rt.level_6_full_code, rt.level_5_full_code, rt.level_4_full_code), 1, 10) IN (__KODE_DESA__)
 )
-, ak AS (
+, meteran_rendah AS (
+  SELECT m.assignment_id, MAX(CASE WHEN m.daya_terpasang_value='1' THEN 1 ELSE 0 END) AS ada_daya_rendah
+  FROM tgr_fd68e454.nested_meteran m GROUP BY m.assignment_id
+)
+, flagged AS (
+  SELECT DISTINCT assignment_id FROM (
+      SELECT k.assignment_id FROM kel k CROSS JOIN param p
+        WHERE k.luas_lantai IS NOT NULL AND k.jumlah_ak > 0
+          AND (k.luas_lantai / k.jumlah_ak < p.p_luas_min_k4 OR k.luas_lantai / k.jumlah_ak > p.p_luas_max_k4)
+    UNION ALL SELECT k.assignment_id FROM kel k
+        WHERE k.pendapatan_bln IS NOT NULL AND k.pengeluaran_bln IS NOT NULL AND k.pendapatan_bln < k.pengeluaran_bln
+    UNION ALL SELECT k.assignment_id FROM kel k CROSS JOIN param p
+        LEFT JOIN meteran_rendah m ON m.assignment_id=k.assignment_id
+        WHERE k.punya_barang_mewah=1 AND k.listrik_sebulan < p.p_listrik_k6 AND k.jml_meteran=1 AND COALESCE(m.ada_daya_rendah,0)=1
+    UNION ALL SELECT k.assignment_id FROM kel k CROSS JOIN param p WHERE k.jumlah_ak > p.p_jml_ak_k7
+  ) t
+)
+SELECT
+    m.assignment_id
+  , m.index1
+  , m.daya_terpasang_value
+FROM tgr_fd68e454.nested_meteran m
+JOIN flagged f ON f.assignment_id = m.assignment_id;`;
+
+// Cabang K1/K3 SAJA — TIDAK BISA difilter wilayah (join root_table+
+// nested_dtsen* = StarRocks Issue 1002), jadi TIDAK punya __KODE_DESA__.
+// Dijalankan HANYA 2x total (partisi 0/1 via __PARTISI__), TIDAK di-loop
+// per grup wilayah (lihat buildJobs() di bawah).
+const ROSTER_AK_K1K3_SQL = `WITH
+ak AS (
   SELECT d.assignment_id, d.index1, d.hubungan_value, d.status_kawin_value, CAST(d.umur_ak AS INT) AS umur
   FROM tgr_fd68e454.nested_dtsen d WHERE d.keberadaan_dtsen_value IN ('1','5')
 )
@@ -225,22 +227,27 @@ param AS (
               THEN 1 ELSE 0 END AS disabilitas
   FROM tgr_fd68e454.nested_dtsen_var v
 )
-, meteran_rendah AS (
-  SELECT m.assignment_id, MAX(CASE WHEN m.daya_terpasang_value='1' THEN 1 ELSE 0 END) AS ada_daya_rendah
-  FROM tgr_fd68e454.nested_meteran m GROUP BY m.assignment_id
+, ak_idx1 AS (
+  SELECT a.assignment_id, MIN(CAST(a.index1 AS INT)) AS idx1
+  FROM ak a GROUP BY a.assignment_id
 )
-, ak_pos AS (
-  SELECT a.assignment_id, ROW_NUMBER() OVER (PARTITION BY a.assignment_id ORDER BY CAST(a.index1 AS INT)) AS rn,
-         a.hubungan_value AS hb, a.status_kawin_value AS sw FROM ak a
+, ak_idx2 AS (
+  SELECT a.assignment_id, MIN(CAST(a.index1 AS INT)) AS idx2
+  FROM ak a JOIN ak_idx1 i1 ON i1.assignment_id = a.assignment_id
+  WHERE CAST(a.index1 AS INT) > i1.idx1
+  GROUP BY a.assignment_id
 )
 , ak_12 AS (
-  SELECT assignment_id, MAX(CASE WHEN rn=1 THEN hb END) AS hb1, MAX(CASE WHEN rn=1 THEN sw END) AS sw1,
-         MAX(CASE WHEN rn=2 THEN hb END) AS hb2, MAX(CASE WHEN rn=2 THEN sw END) AS sw2
-  FROM ak_pos GROUP BY assignment_id
+  SELECT i1.assignment_id
+       , a1.hubungan_value AS hb1, a1.status_kawin_value AS sw1
+       , a2.hubungan_value AS hb2, a2.status_kawin_value AS sw2
+  FROM ak_idx1 i1
+  JOIN ak a1 ON a1.assignment_id = i1.assignment_id AND CAST(a1.index1 AS INT) = i1.idx1
+  LEFT JOIN ak_idx2 i2 ON i2.assignment_id = i1.assignment_id
+  LEFT JOIN ak a2 ON a2.assignment_id = i2.assignment_id AND CAST(a2.index1 AS INT) = i2.idx2
 )
 , ak_agg AS (
   SELECT a.assignment_id, COUNT(*) AS n_ak,
-         MIN(CASE WHEN a.hubungan_value='1' THEN a.umur END) AS umur_kk,
          SUM(COALESCE(d.disabilitas,0)) AS n_disabilitas
   FROM ak a LEFT JOIN ak_dis d ON d.assignment_id=a.assignment_id AND d.index1=a.index1
   GROUP BY a.assignment_id
@@ -250,18 +257,75 @@ param AS (
       SELECT x.assignment_id FROM ak_12 x
         WHERE x.hb1='1' AND x.hb2 IS NOT NULL
           AND ((x.hb2='2' AND (x.sw1<>'2' OR x.sw2<>'2')) OR (x.sw1='2' AND x.hb2<>'2'))
-    UNION ALL SELECT k.assignment_id FROM kel k JOIN ak_agg g ON g.assignment_id=k.assignment_id
-        WHERE g.umur_kk < 10 AND k.status_kepemilikan_value='1'
+          AND ABS(MOD(MURMUR_HASH3_32(x.assignment_id), 2)) = __PARTISI__
     UNION ALL SELECT g.assignment_id FROM ak_agg g WHERE g.n_ak > 1 AND g.n_disabilitas = g.n_ak
-    UNION ALL SELECT k.assignment_id FROM kel k CROSS JOIN param p
-        WHERE k.luas_lantai IS NOT NULL AND k.jumlah_ak > 0
-          AND (k.luas_lantai / k.jumlah_ak < p.p_luas_min_k4 OR k.luas_lantai / k.jumlah_ak > p.p_luas_max_k4)
-    UNION ALL SELECT k.assignment_id FROM kel k
-        WHERE k.pendapatan_bln IS NOT NULL AND k.pengeluaran_bln IS NOT NULL AND k.pendapatan_bln < k.pengeluaran_bln
-    UNION ALL SELECT k.assignment_id FROM kel k CROSS JOIN param p
-        LEFT JOIN meteran_rendah m ON m.assignment_id=k.assignment_id
-        WHERE k.punya_barang_mewah=1 AND k.listrik_sebulan < p.p_listrik_k6 AND k.jml_meteran=1 AND COALESCE(m.ada_daya_rendah,0)=1
-    UNION ALL SELECT k.assignment_id FROM kel k CROSS JOIN param p WHERE k.jumlah_ak > p.p_jml_ak_k7
+        AND ABS(MOD(MURMUR_HASH3_32(g.assignment_id), 2)) = __PARTISI__
+  ) t
+)
+SELECT
+    d.assignment_id
+  , d.index1
+  , d.nama_dtsen
+  , d.hubungan_value
+  , d.keberadaan_dtsen_value
+  , d.status_kawin_value
+  , v.nilai_pend_pekerjaan
+  , v.dis_netra_value
+  , v.dis_rungu_value
+  , v.dis_fisik_value
+  , v.dis_intelek_value
+  , v.dis_mental_value
+  , v.dis_wicara_value
+FROM tgr_fd68e454.nested_dtsen d
+JOIN flagged f ON f.assignment_id = d.assignment_id
+LEFT JOIN tgr_fd68e454.nested_dtsen_var v ON v.assignment_id = d.assignment_id AND v.index1 = d.index1
+WHERE d.keberadaan_dtsen_value IN ('1','5');`;
+
+const ROSTER_METERAN_K1K3_SQL = `WITH
+ak AS (
+  SELECT d.assignment_id, d.index1, d.hubungan_value, d.status_kawin_value
+  FROM tgr_fd68e454.nested_dtsen d WHERE d.keberadaan_dtsen_value IN ('1','5')
+)
+, ak_dis AS (
+  SELECT v.assignment_id, v.index1,
+         CASE WHEN v.dis_netra_value='1' OR v.dis_rungu_value='1' OR v.dis_wicara_value='1'
+                OR v.dis_fisik_value='1' OR v.dis_intelek_value='1' OR v.dis_mental_value='1'
+              THEN 1 ELSE 0 END AS disabilitas
+  FROM tgr_fd68e454.nested_dtsen_var v
+)
+, ak_idx1 AS (
+  SELECT a.assignment_id, MIN(CAST(a.index1 AS INT)) AS idx1
+  FROM ak a GROUP BY a.assignment_id
+)
+, ak_idx2 AS (
+  SELECT a.assignment_id, MIN(CAST(a.index1 AS INT)) AS idx2
+  FROM ak a JOIN ak_idx1 i1 ON i1.assignment_id = a.assignment_id
+  WHERE CAST(a.index1 AS INT) > i1.idx1
+  GROUP BY a.assignment_id
+)
+, ak_12 AS (
+  SELECT i1.assignment_id
+       , a1.hubungan_value AS hb1, a1.status_kawin_value AS sw1
+       , a2.hubungan_value AS hb2, a2.status_kawin_value AS sw2
+  FROM ak_idx1 i1
+  JOIN ak a1 ON a1.assignment_id = i1.assignment_id AND CAST(a1.index1 AS INT) = i1.idx1
+  LEFT JOIN ak_idx2 i2 ON i2.assignment_id = i1.assignment_id
+  LEFT JOIN ak a2 ON a2.assignment_id = i2.assignment_id AND CAST(a2.index1 AS INT) = i2.idx2
+)
+, ak_agg AS (
+  SELECT a.assignment_id, COUNT(*) AS n_ak,
+         SUM(COALESCE(d.disabilitas,0)) AS n_disabilitas
+  FROM ak a LEFT JOIN ak_dis d ON d.assignment_id=a.assignment_id AND d.index1=a.index1
+  GROUP BY a.assignment_id
+)
+, flagged AS (
+  SELECT DISTINCT assignment_id FROM (
+      SELECT x.assignment_id FROM ak_12 x
+        WHERE x.hb1='1' AND x.hb2 IS NOT NULL
+          AND ((x.hb2='2' AND (x.sw1<>'2' OR x.sw2<>'2')) OR (x.sw1='2' AND x.hb2<>'2'))
+          AND ABS(MOD(MURMUR_HASH3_32(x.assignment_id), 2)) = __PARTISI__
+    UNION ALL SELECT g.assignment_id FROM ak_agg g WHERE g.n_ak > 1 AND g.n_disabilitas = g.n_ak
+        AND ABS(MOD(MURMUR_HASH3_32(g.assignment_id), 2)) = __PARTISI__
   ) t
 )
 SELECT
@@ -416,20 +480,31 @@ const TABEL_B = [
   ['5108090010']
 ];
 
-function fillTemplate(sql, kodeList) {
+function fillTemplate(sql, kodeList, partisi) {
   const inList = kodeList.map((k) => `'${k}'`).join(',');
-  return sql.replace('__KODE_DESA__', inList);
+  let out = sql.replace('__KODE_DESA__', inList);
+  if (partisi !== undefined) out = out.split('__PARTISI__').join(String(partisi));
+  return out;
 }
 
 // Daftar JOB final — dikonsumsi urut oleh scripts/fasih-sqllab-export.js.
-// Urutan: semua keluarga dulu, lalu rosterAk, rosterMeteran, usaha (sesuai
-// urutan yang disarankan di sql/PROMPT_COWORK_EKSPOR.md).
+//
+// REVISI 2026-08-11 (bug duplikasi K1/K3 diperbaiki, lihat catatan REVISI di
+// sql/query_ekspor_fasih_roster_ak.sql untuk kronologi lengkap): versi lama
+// menggabungkan K1/K3 KE DALAM rosterAk/rosterMeteran lalu meng-loop 21 grup
+// wilayah × 2 partisi — karena K1/K3 tidak bisa difilter wilayah, ini membuat
+// partisi K1/K3 yang SAMA ter-duplikasi ke staging di SETIAP grup (21x lipat
+// ganda), membengkakkan FASIH Roster AK ke 229.782 baris & nyaris kena limit
+// 10 juta sel workbook. Sekarang: rosterAk/rosterMeteran (K2/K4/K5/K6/K7)
+// di-loop 21x TANPA partisi (aman, semua bisa difilter wilayah); K1/K3
+// dipisah ke ROSTER_*_K1K3_SQL, dijalankan 2x TOTAL (tidak di-loop wilayah).
+//
+// `keluarga` & `usaha` SENGAJA TIDAK dibangun di sini lagi — SUDAH SELESAI
+// dijalankan & tervalidasi di staging (2026-08-11), buildJobs() dari fungsi
+// ini HANYA dipakai untuk roster (kalau perlu keluarga/usaha lagi, restore
+// dari histori git, jangan re-run tanpa alasan).
 function buildJobs() {
   const jobs = [];
-  TABEL_A.forEach((kodeList, i) => {
-    const n = String(i + 1).padStart(2, '0');
-    jobs.push({ id: `keluarga_${n}`, stagingKey: 'keluarga', sql: fillTemplate(KELUARGA_SQL, kodeList) });
-  });
   TABEL_A.forEach((kodeList, i) => {
     const n = String(i + 1).padStart(2, '0');
     jobs.push({ id: `rosterAk_${n}`, stagingKey: 'rosterAk', sql: fillTemplate(ROSTER_AK_SQL, kodeList) });
@@ -438,9 +513,11 @@ function buildJobs() {
     const n = String(i + 1).padStart(2, '0');
     jobs.push({ id: `rosterMeteran_${n}`, stagingKey: 'rosterMeteran', sql: fillTemplate(ROSTER_METERAN_SQL, kodeList) });
   });
-  TABEL_B.forEach((kodeList, i) => {
-    const n = String(i + 1).padStart(2, '0');
-    jobs.push({ id: `usaha_${n}`, stagingKey: 'usaha', sql: fillTemplate(USAHA_SQL, kodeList) });
+  [0, 1].forEach((p) => {
+    jobs.push({ id: `rosterAk_k1k3_p${p}`, stagingKey: 'rosterAk', sql: fillTemplate(ROSTER_AK_K1K3_SQL, [], p) });
+  });
+  [0, 1].forEach((p) => {
+    jobs.push({ id: `rosterMeteran_k1k3_p${p}`, stagingKey: 'rosterMeteran', sql: fillTemplate(ROSTER_METERAN_K1K3_SQL, [], p) });
   });
   return jobs;
 }
