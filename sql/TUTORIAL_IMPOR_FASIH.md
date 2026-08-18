@@ -1,12 +1,16 @@
 # Tutorial Impor FASIH → Aplikasi LK Anomali (manual, via CSV)
 
-Alur ini **tidak menarik data otomatis** dari FASIH (server FASIH memblokir
-request beruntun / "Bot Detected"). Kamu jalankan query di SQL Lab, **simpan
-hasilnya ke file**, lalu paste ke tab staging di spreadsheet aplikasi. Aplikasi
-yang merakit record + **menghitung ulang anomali sendiri** (bukan menyalin dari
-SQL) saat impor.
+Alur ini **tidak menarik data otomatis dari FASIH tanpa jeda** (server FASIH
+memblokir request beruntun CEPAT / "Bot Detected" — terbukti terjadi kalau
+tidak ada jeda; sejauh diketahui pemblokiran ini pulih sendiri setelah
+menunggu beberapa saat, BUKAN blokir akun permanen). Kamu jalankan query di
+SQL Lab (manual ATAU via `scripts/fasih-sqllab-export.js`, lihat §1b),
+**simpan hasilnya ke file**, lalu masukkan ke tab staging di spreadsheet
+aplikasi. Aplikasi yang merakit record + **menghitung ulang anomali sendiri**
+(bukan menyalin dari SQL) saat impor.
 
-Ringkas: **4 query → 4 CSV → 4 tab staging → 1 tombol impor.**
+Ringkas: **4 query → banyak CSV (lihat §4, dipecah per grup wilayah) → 4 tab
+staging → 1 tombol impor.**
 
 ---
 
@@ -88,6 +92,68 @@ keluarga ≥2 anggota yang sebenarnya "bersih" ikut terimpor.
   pakai `ORDER BY` (sempat memicu `Invalid plan` planner StarRocks bersama
   `TopNOperator`, sama seperti kasus di query keluarga) — urutan baris tidak
   memengaruhi hasil impor.
+
+---
+
+## 1b. Opsi otomasi — `scripts/fasih-sqllab-export.js` (Playwright, browser terpisah)
+
+Karena §4 mengharuskan **84 kali jalan query** (21 grup wilayah × 4 file),
+tersedia script Playwright yang menjalankan semuanya berurutan dengan jeda
+30-60 detik acak antar-query, lalu men-download tiap hasil sebagai CSV.
+
+**Login & VPN tetap 100% kamu pegang manual** — script membuka jendela
+browser Playwright (Chromium bawaan, headed). **Konfigurasi browser meniru
+proyek referensi `scrape_fasih`** (Playwright Python, dipakai untuk scraping
+`fasih-sm.bps.go.id` — aplikasi BPS lain, TERBUKTI berhasil lolos deteksi
+bot): Chromium biasa + `slowMo: 50` (jeda 50ms tiap aksi), TANPA override
+fingerprint apa pun. **Riwayat percobaan sebelumnya**: sempat dicoba
+`channel:'chrome'` (Chrome asli) + patch `navigator.webdriver` — TETAP
+terdeteksi, jadi dibuang, kembali ke pola paling sederhana yang justru
+terbukti jalan di proyek referensi itu. Catatan jujur: `scrape_fasih`
+menyasar domain BPS yang BEDA (`fasih-sm` vs `fasih-dashboard`/SQL Lab di
+sini) — pola ini dugaan terbaik berdasarkan bukti nyata, BUKAN jaminan mutlak
+akan berhasil juga di SQL Lab.
+
+Browser dibuka ke **halaman login FASIH dulu** (bukan langsung ke SQL Lab)
+supaya urutan navigasinya wajar. Script berhenti sejenak dan menunggu kamu
+tekan Enter di terminal setelah kamu login + aktifkan VPN + navigasi sendiri
+ke SQL Lab. Setelah itu baru script mengambil alih menjalankan 84 query
+secara otomatis.
+
+```bash
+node scripts/fasih-sqllab-export.js
+```
+
+- Progres tersimpan ke `scripts/fasih-sqllab-export.progress.json` — kalau
+  proses terhenti (ditutup paksa, error, Ctrl+C), jalankan ulang PERINTAH
+  YANG SAMA dan otomatis lanjut dari job yang belum selesai, tidak mengulang
+  84 dari awal.
+- Kalau server menampilkan pesan yang mengandung "Bot Detected", script
+  **berhenti total otomatis** (tidak retry sendiri) dan progres tetap
+  tersimpan sampai job sebelumnya — tunggu beberapa saat, lalu jalankan ulang
+  perintah yang sama untuk lanjut.
+- Untuk uji coba 1-2 job dulu sebelum menjalankan semua 84 (disarankan,
+  supaya tahu selector-nya cocok dengan tampilan SQL Lab BPS sebelum jalan
+  penuh): `node scripts/fasih-sqllab-export.js --only=keluarga_01`
+- **PENTING**: selector elemen (editor SQL, tombol Run, tombol Download CSV)
+  di dalam script ditulis mengikuti pola umum Superset open-source —
+  instalasi BPS BISA berbeda. Kalau script berhenti dengan pesan "Elemen
+  tidak ditemukan", buka konstanta `SELECTORS` di bagian atas
+  `scripts/fasih-sqllab-export.js`, inspect elemen yang dimaksud di browser
+  (klik kanan → Inspect), sesuaikan nilainya. **Belum pernah dites end-to-end
+  terhadap tampilan SQL Lab BPS sungguhan** — kemungkinan perlu 1-2 kali
+  penyesuaian selector di percobaan pertama. `LOGIN_URL` (dekat awal file)
+  juga baru tebakan pola umum, cek/sesuaikan ke URL login FASIH sesungguhnya.
+- Kalau Chrome belum terpasang, script berhenti dengan pesan jelas
+  (bukan error Playwright yang membingungkan) — pasang dari
+  google.com/chrome dulu.
+- CSV tersimpan ke folder `export/` dengan nama `<query>_<nomor>.csv` (mis.
+  `keluarga_01.csv`) — otomatis dibaca `scripts/fasih-import-all.js` di §4b.
+- Kalau lebih suka jalankan manual satu-satu (tanpa script sama sekali), atau
+  mendelegasikan ke Claude Cowork alih-alih menjalankan sendiri, dua-duanya
+  tetap didukung — lihat `sql/PROMPT_COWORK_EKSPOR.md` (berisi 4 query
+  lengkap siap-salin + 42 daftar kode wilayah, format prompt siap tempel ke
+  Claude Cowork; aturan jeda yang sama juga berlaku di sana).
 
 ---
 
@@ -298,6 +364,30 @@ sumbernya dari `root_table` tidak bisa dioper ke cabang yang sumbernya
 di tiap jalan (bukan per-grup) — aman diimpor berkali-kali (idempoten), tapi
 jangan kaget kalau `fasih_keluarga.csv`/`fasih_roster_ak.csv` tidak mengecil
 signifikan hanya dari filter wilayah saja.
+
+---
+
+## 4b. Impor semua CSV sekaligus — `scripts/fasih-import-all.js`
+
+Setelah folder `export/` terisi (baik dari §1b otomatis, dari
+`sql/PROMPT_COWORK_EKSPOR.md`, atau didownload manual satu-satu dengan nama
+mengikuti pola `<stagingKey>_<nomor>.csv`, mis. `keluarga_01.csv`,
+`usaha_15.csv`), jalankan SATU perintah untuk memasukkan semuanya ke staging
++ impor sekali di akhir:
+
+```bash
+node scripts/fasih-import-all.js
+```
+
+Berbeda dari §1b (yang WAJIB berjeda karena menyentuh server FASIH), script
+ini **AMAN diotomasi penuh tanpa jeda** — hanya memanggil aplikasi sendiri
+lewat `google.script.run`, sama sekali tidak menyentuh FASIH. Prosesnya:
+tumpuk semua file per `stagingKey` ke tab staging masing-masing (pakai
+`--no-import` di tiap panggilan supaya tidak memicu recompute anomali 84 kali
+berturut-turut), lalu SATU kali `import-fasih` di paling akhir.
+
+Kalau CSV ada di folder lain (mis. hasil unduhan manual disimpan terpisah):
+`node scripts/fasih-import-all.js --dir=export/nama_folder_lain`.
 
 ---
 
